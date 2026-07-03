@@ -74,7 +74,8 @@ Sygnaturę można podać w wielu formach: `DU 2000 1037`, `DU/2024/18`, `"Dz.U. 
   `python3 scripts/eli.py tekst DU 2024 18 --fragment "art. 299"` (trafia w nagłówek artykułu, nie w odesłania)
   `python3 scripts/eli.py tekst DU 2024 18 --fragment "przedawnienie"` (wyszukiwanie pełnotekstowe)
   `--pdf ŚCIEŻKA` zapisuje urzędowy PDF (preferuje tekst jednolity). Artykuły z indeksem górnym są
-  w tekście sklejone: art. 299¹ → `--fragment "art. 2991"`.
+  w tekście sklejone: art. 299¹ → `--fragment "art. 2991"`; obsługiwana jest też forma z nawiasem:
+  `--fragment "art. 730(1)"` / `--fragment "art. 505(29a)"`.
 - **struktura** — spis jednostek redakcyjnych (tytuły/działy/rozdziały/artykuły):
   `python3 scripts/eli.py struktura DU 2024 18 --filtr "Art. 299"` (opcje: `--filtr`, `--poziom N`)
 - **odniesienia** — powiązania: nowelizacje, podstawa prawna, tekst jednolity, akty wykonawcze:
@@ -85,6 +86,14 @@ Narzędzie samo ostrzega: `tekst` na akcie, który ma tekst jednolity, każe cyt
 na tekście jednolitym wypisuje „Nowelizacje po tekście jednolitym". Gdy `text.html` świeżego t.j. jest
 jeszcze puste w API, narzędzie automatycznie czyta poprzedni t.j. i każe nałożyć zmiany pomiędzy nimi.
 Nie ignoruj tych ostrzeżeń.
+
+Jak "nałożyć zmiany pomiędzy nimi" (3 kroki):
+1. `odniesienia <stary t.j.>` -> odczytaj sekcję "Nowelizacje po tekście jednolitym"
+   (lista aktów zmieniających).
+2. Dla każdej nowelizacji: `meta <nowelizacja>` (data wejścia w życie) + sprawdź, czy dotyka
+   cytowanego artykułu: `tekst <nowelizacja> --fragment "art. N"`.
+3. Jeśli dotyka - NIE cytuj ze starego t.j.: cytuj z urzędowego PDF nowego t.j.
+   (`tekst <nowy t.j.> --pdf ŚCIEŻKA`).
 
 ### Akty bazowe głównych kodeksów (pomiń `szukaj`)
 
@@ -125,7 +134,11 @@ potem `tekst <t.j.> --fragment "art. N"` (dwie komendy zamiast trzech):
    `text.html` po konwersji bywa zlepiony; `--fragment` jest świetny do szybkiego odczytu i analizy.
 4. **Zawsze podawaj sygnaturę Dz.U./M.P. i ELI** przy cytacie (np. „art. 299 § 1 k.s.h., Dz.U. 2024
    poz. 18"). To pozwala odbiorcy zweryfikować źródło.
-5. Pełna lista endpointów i parametrów: `references/api.md` (czytaj przy zapytaniach spoza powyższych
+5. **Tryb awaryjny - gdy API jest niedostępne lub akt nieznaleziony:** NIE cytuj brzmienia
+   przepisu z pamięci ani z portali. Powiedz wprost, że przepis jest niezweryfikowany, oznacz
+   go `[nie zweryfikowano w ELI]` i zaproponuj alternatywę: urzędowy PDF z `isap.sejm.gov.pl`
+   albo ponowienie zapytania do API później.
+6. Pełna lista endpointów i parametrów: `references/api.md` (czytaj przy zapytaniach spoza powyższych
    komend — np. słowniki typów/haseł, listowanie roczników, akty zmieniające w okresie).
 
 ## Czego ten skill NIE obejmuje
