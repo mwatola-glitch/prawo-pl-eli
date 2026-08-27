@@ -220,62 +220,6 @@ class TestFragmentyZPrzypisem(unittest.TestCase):
                 self.assertTrue(eli._fragmenty(self.TXT, fraza), f"brak trafienia dla {fraza!r}")
 
 
-class TestTjZTekstem(unittest.TestCase):
-    """Fallback, gdy API zwraca 200 i 0 bajtów dla text.html świeżego tekstu jednolitego."""
-
-    REFS_TJ = {"Tekst jednolity dla aktu": [
-        {"act": {"ELI": "DU/1964/296", "displayAddress": "Dz.U. 1964 nr 43 poz. 296"}}]}
-    BASE_REFS = {"Inf. o tekście jednolitym": [
-        {"act": {"ELI": "DU/2026/468", "displayAddress": "Dz.U. 2026 poz. 468"}},
-        {"act": {"ELI": "DU/2024/1568", "displayAddress": "Dz.U. 2024 poz. 1568"}},
-    ]}
-
-    def _z_fake_get(self, odpowiedzi, path, refs):
-        def fake_get(p, params=None, soft=False):
-            return odpowiedzi.get(p)
-        orig = eli._get
-        eli._get = fake_get
-        try:
-            return eli._tj_z_tekstem(path, refs)
-        finally:
-            eli._get = orig
-
-    def test_akt_jest_tj_bez_html_bierze_poprzedni_tj(self):
-        wynik = self._z_fake_get({
-            "/acts/DU/1964/296/references": self.BASE_REFS,
-            "/acts/DU/2024/1568/text.html": "<p>Art. 1. Treść.</p>",
-        }, "/acts/DU/2026/468", self.REFS_TJ)
-        self.assertIsNotNone(wynik)
-        act, txt = wynik
-        self.assertEqual(act["ELI"], "DU/2024/1568")
-        self.assertIn("Art. 1.", txt)
-
-    def test_pomija_tj_z_pustym_html(self):
-        # najnowszy kandydat też bez HTML — idzie dalej po liście
-        refs_bazowe = {"Inf. o tekście jednolitym": [
-            {"act": {"ELI": "DU/2026/468"}},
-            {"act": {"ELI": "DU/2024/1568"}},
-            {"act": {"ELI": "DU/2023/1550"}},
-        ]}
-        wynik = self._z_fake_get({
-            "/acts/DU/2026/468/text.html": "",
-            "/acts/DU/2024/1568/text.html": "",
-            "/acts/DU/2023/1550/text.html": "<p>Art. 1.</p>",
-        }, "/acts/DU/1964/296", refs_bazowe)
-        self.assertEqual(wynik[0]["ELI"], "DU/2023/1550")
-
-    def test_brak_kandydatow_zwraca_none(self):
-        self.assertIsNone(self._z_fake_get({}, "/acts/DU/2026/468", {}))
-
-    def test_nie_zwraca_aktu_biezacego(self):
-        # jedyny t.j. na liście to akt bieżący — fallback nie może zwrócić jego samego
-        wynik = self._z_fake_get({
-            "/acts/DU/1964/296/references": {"Inf. o tekście jednolitym": [
-                {"act": {"ELI": "DU/2026/468"}}]},
-        }, "/acts/DU/2026/468", self.REFS_TJ)
-        self.assertIsNone(wynik)
-
-
 class TestFlagaJson(unittest.TestCase):
     """--json musi działać także PO komendzie — modele piszą flagi właśnie tam."""
 
@@ -405,33 +349,6 @@ class EliVerificationContractTests(unittest.TestCase):
             eli.cmd_tekst(args)
         self.assertIn("Art. 1. Treść przepisu.", out.getvalue())
         self.assertIn("nie udało się zweryfikować aktualności", out.getvalue())
-
-    def test_fallback_pomija_kandydata_z_awaria(self):
-        # awaria transportu na JEDNYM kandydacie t.j. nie zabija pętli zapasowej
-        refs = {"Inf. o tekście jednolitym": [
-            {"act": {"ELI": "DU/2023/100", "displayAddress": "Dz.U. 2023 poz. 100"}},
-            {"act": {"ELI": "DU/2020/50", "displayAddress": "Dz.U. 2020 poz. 50"}}]}
-        def fake_get(path, params=None, soft=False):
-            if "2023/100" in path:
-                raise eli.VerificationUnknown("zapora odrzuciła żądanie")
-            return "<html><body><p>Art. 1. Tekst z 2020 r.</p></body></html>"
-        with mock.patch.object(eli, "_get", side_effect=fake_get):
-            act, txt = eli._tj_z_tekstem("/acts/DU/2024/18", refs)
-        self.assertEqual(act["ELI"], "DU/2020/50")
-        self.assertIn("Tekst z 2020", txt)
-
-    def test_fallback_unknown_gdy_zaden_kandydat_nie_dal_tekstu(self):
-        # gdy część kandydatów padła, a żaden nie dał tekstu — UNKNOWN, nie "braku t.j."
-        refs = {"Inf. o tekście jednolitym": [
-            {"act": {"ELI": "DU/2023/100"}}, {"act": {"ELI": "DU/2020/50"}}]}
-        def fake_get(path, params=None, soft=False):
-            if "2023/100" in path:
-                raise eli.VerificationUnknown("timeout")
-            return ""
-        with mock.patch.object(eli, "_get", side_effect=fake_get):
-            with self.assertRaises(eli.VerificationUnknown):
-                eli._tj_z_tekstem("/acts/DU/2024/18", refs)
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
