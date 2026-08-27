@@ -44,13 +44,22 @@ Urzędu Publikacji UE, które zasila EUR-Lex (SPARQL + REST, bez rejestracji i k
 Wszystko robi helper `scripts/eurlex.py` (tylko biblioteka standardowa Pythona — bez instalacji,
 bez klucza API). Skrypt leży **obok tego pliku SKILL.md** — NIE zakładaj, że to `~/.claude/skills/`
 (skill zainstalowany jako plugin leży w katalogu pluginów; w Claude Code:
-`${CLAUDE_PLUGIN_ROOT}/skills/prawo-eu-eurlex`). Gdy nie znasz ścieżki, najpierw ją ustal:
+`${CLAUDE_PLUGIN_ROOT}/skills/prawo-eu-eurlex`). Uruchamiaj wyłącznie helper z bieżącego pakietu:
 
 ```
-EURLEX=$(find "$HOME/.claude" "$HOME/.agents" /mnt /sessions -maxdepth 10 -name eurlex.py -path "*prawo-eu-eurlex*" 2>/dev/null | head -1)
-[ -n "$EURLEX" ] || { curl -fsSL https://raw.githubusercontent.com/jamarpl21/prawo-pl-eli/main/plugins/prawo-eu-eurlex/skills/prawo-eu-eurlex/scripts/eurlex.py -o /tmp/eurlex.py && EURLEX=/tmp/eurlex.py; }
+# Podstaw bezwzględną ścieżkę bieżącego SKILL.md z lokalizatora skilla.
+SKILL_MD="/bezwzględna/ścieżka/do/bieżącego/SKILL.md"
+SKILL_DIR="${SKILL_MD%/SKILL.md}"
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+  EURLEX="${CLAUDE_PLUGIN_ROOT}/skills/prawo-eu-eurlex/scripts/eurlex.py"
+else
+  EURLEX="${SKILL_DIR}/scripts/eurlex.py"
+fi
+[ -f "$EURLEX" ] || { echo "BŁĄD: brak helpera bieżącego pakietu: $EURLEX" >&2; exit 1; }
 python3 "$EURLEX" <komenda> [...]
 ```
+
+Nie pobieraj helpera z sieci i nie szukaj go po katalogach użytkownika ani systemu.
 
 (W przykładach niżej `python3 scripts/eurlex.py` oznacza `python3 "$EURLEX"`, jeśli nie jesteś
 w katalogu skilla.)
@@ -79,7 +88,7 @@ wersje skonsolidowane `02016R0679-20160504`, sprostowania `32016R0679R(01)`, tra
   `--jezyk eng` — inna wersja językowa; `--pdf ŚCIEŻKA` zapisuje urzędowy PDF.
 - **odniesienia** — nowelizacje, sprostowania, podstawa prawna:
   `python3 scripts/eurlex.py odniesienia 32016R0679`
-- każda komenda przyjmuje `--json` (surowa odpowiedź do dalszego przetwarzania; działa przed komendą i po niej).
+- każda komenda przyjmuje `--json` oraz `--strict` (blokuje wynik bez zweryfikowanej aktualności lub kompletności); obie flagi działają przed komendą i po niej.
 
 Narzędzie samo ostrzega: na akcie bazowym podpowiada najnowszą wersję skonsolidowaną; na wersji
 skonsolidowanej przypomina o jej dokumentacyjnym charakterze i o nowszych wersjach. Nie ignoruj

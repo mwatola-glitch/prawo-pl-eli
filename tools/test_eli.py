@@ -451,5 +451,22 @@ class EliVerificationContractTests(unittest.TestCase):
         self.assertEqual(out.getvalue(), "")
 
 
+class TestLokalneHelpery(unittest.TestCase):
+    def test_cztery_skille_nie_szukaja_i_nie_pobieraja_helpera(self):
+        skills = (
+            "plugins/prawo-pl-eli/skills/prawo-pl-eli/SKILL.md",
+            "plugins/prawo-eu-eurlex/skills/prawo-eu-eurlex/SKILL.md",
+            "plugins/prawo-pl-saos/skills/prawo-pl-saos/SKILL.md",
+            "plugins/prawo-pl-cbosa/skills/prawo-pl-cbosa/SKILL.md",
+        )
+        for relative in skills:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(skill=relative):
+                self.assertNotIn("raw.githubusercontent.com", text)
+                self.assertNotIn("$(find ", text)
+                self.assertIn("CLAUDE_PLUGIN_ROOT", text)
+                self.assertIn("brak helpera bieżącego pakietu", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

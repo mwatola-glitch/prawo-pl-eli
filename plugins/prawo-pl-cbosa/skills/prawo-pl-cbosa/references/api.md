@@ -72,8 +72,8 @@ POST zwraca stronę 1 + ciasteczka sesji (`Set-Cookie`). Kolejne strony: `GET /c
 
 - **Throttling ≥0,5 s** między żądaniami (wbudowany). Serwer bywa przeciążony i ucina połączenia bez
   odpowiedzi — silnik ponawia z rosnącym odstępem; nie zrównoleglaj zapytań.
-- **SSL:** CBOSA serwuje niekompletny łańcuch certyfikatów — na części systemów weryfikacja pada;
-  silnik przechodzi wtedy (tylko dla tego hosta) na kontekst bez weryfikacji łańcucha (dane publiczne).
+- **SSL:** błąd weryfikacji certyfikatu kończy pobieranie jako `UNKNOWN`. Helper nigdy nie wyłącza
+  sprawdzania certyfikatu ani nazwy hosta. Problem łańcucha CA trzeba naprawić w środowisku.
 - **Symbole spraw** (pole `symbole`): 4-cyfrowe oznaczenia repertoriów, np. `611x` podatki
   (6112 PIT, 6110 VAT), `6014` prawo budowlane, `6320` pomoc społeczna, `6480` informacja publiczna.
   Pełny wykaz: zarządzenie Prezesa NSA (dostępne na stronach NSA).
