@@ -98,8 +98,8 @@ Sygnaturę można podać w wielu formach: `DU 2000 1037`, `DU/2024/18`, `"Dz.U. 
 
 Narzędzie samo ostrzega: `tekst` na akcie, który ma tekst jednolity, każe cytować z najnowszego t.j.;
 na tekście jednolitym wypisuje „Nowelizacje po tekście jednolitym". Gdy `text.html` świeżego t.j. jest
-jeszcze puste w API, narzędzie automatycznie czyta poprzedni t.j. i każe nałożyć zmiany pomiędzy nimi.
-Nie ignoruj tych ostrzeżeń.
+jeszcze puste w API, narzędzie kończy błędem i wskazuje pobranie urzędowego PDF tego samego aktu.
+Nie podstawia tekstu innego, starszego aktu.
 
 ### Akty bazowe głównych kodeksów (pomiń `szukaj`)
 
