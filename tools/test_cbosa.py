@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Offline unit tests for cbosa.py pure functions (no network). Run: python3 tools/test_cbosa.py"""
+import argparse
 import sys
 import importlib.util
 import pathlib
+import ssl
 import unittest
 import urllib.error
 from unittest import mock
@@ -315,6 +317,10 @@ class TestFlagaJson(unittest.TestCase):
     def test_bez_flagi(self):
         self.assertFalse(self._parsuj(self.ARGV)["json"])
 
+    def test_strict_przed_i_po_komendzie(self):
+        self.assertTrue(self._parsuj(["--strict"] + self.ARGV)["strict"])
+        self.assertTrue(self._parsuj(self.ARGV + ["--strict"])["strict"])
+
 
 class CbosaVerificationContractTests(unittest.TestCase):
     """found/verified_absent/unknown - blad transportu nie moze wygladac jak potwierdzony brak."""
@@ -364,6 +370,32 @@ class CbosaVerificationContractTests(unittest.TestCase):
                 mock.patch.object(cbosa.time, "sleep"):
             with self.assertRaises(cbosa.VerificationUnknown):
                 cbosa._fetch("/cbo/search")
+
+    def test_blad_certyfikatu_nie_wylacza_weryfikacji_tls(self):
+        error = urllib.error.URLError(ssl.SSLCertVerificationError("certificate verify failed"))
+        contexts = []
+
+        def build_opener(*handlers):
+            https = next(handler for handler in handlers
+                         if isinstance(handler, cbosa.urllib.request.HTTPSHandler))
+            contexts.append(https._context)
+            opener = mock.Mock()
+            opener.open.side_effect = error
+            return opener
+
+        cbosa._ostatnie[0] = 0.0
+        with mock.patch.object(cbosa.urllib.request, "build_opener", side_effect=build_opener), \
+                mock.patch.object(cbosa.time, "sleep"):
+            with self.assertRaisesRegex(cbosa.VerificationUnknown, "certyfikatu TLS"):
+                cbosa._fetch("/cbo/search")
+        self.assertEqual(len(contexts), 1)
+        self.assertNotEqual(contexts[0].verify_mode, ssl.CERT_NONE)
+
+    def test_strict_blokuje_nierozpoznana_strone_json(self):
+        args = argparse.Namespace(doc_id="DEADBEEF", json=True, strict=True, fragment=None)
+        with mock.patch.object(cbosa, "_fetch", return_value="<html>maintenance</html>"):
+            with self.assertRaisesRegex(cbosa.VerificationUnknown, "nie udało się rozpoznać"):
+                cbosa.cmd_orzeczenie(args)
 
 
 if __name__ == "__main__":

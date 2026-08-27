@@ -301,6 +301,10 @@ class TestFlagaJson(unittest.TestCase):
     def test_bez_flagi(self):
         self.assertFalse(self._parsuj(self.ARGV)["json"])
 
+    def test_strict_przed_i_po_komendzie(self):
+        self.assertTrue(self._parsuj(["--strict"] + self.ARGV)["strict"])
+        self.assertTrue(self._parsuj(self.ARGV + ["--strict"])["strict"])
+
 
 class _Response:
     def __init__(self, body, content_type="application/json"):
@@ -354,6 +358,21 @@ class EliVerificationContractTests(unittest.TestCase):
         self.assertIn("Art. 1. Treść przepisu.", out.getvalue())
         self.assertIn("nie udało się zweryfikować aktualności", out.getvalue())
 
+    def test_strict_blokuje_tekst_przy_awarii_odniesien(self):
+        def fake_get(path, params=None, soft=False):
+            if path.endswith("/references"):
+                raise eli.VerificationUnknown("timeout")
+            return "<html><body><p>Art. 1. Treść przepisu.</p></body></html>"
+
+        args = argparse.Namespace(sygnatura=["DU", "2024", "18"], json=False,
+                                  strict=True, pdf=None, fragment=None)
+        out = io.StringIO()
+        with mock.patch.object(eli, "_get", side_effect=fake_get), \
+                contextlib.redirect_stdout(out):
+            with self.assertRaisesRegex(eli.VerificationUnknown, "timeout"):
+                eli.cmd_tekst(args)
+        self.assertEqual(out.getvalue(), "")
+
     def test_fallback_pomija_kandydata_z_awaria(self):
         # awaria transportu na JEDNYM kandydacie t.j. nie zabija pętli zapasowej
         refs = {"Inf. o tekście jednolitym": [
@@ -379,6 +398,57 @@ class EliVerificationContractTests(unittest.TestCase):
         with mock.patch.object(eli, "_get", side_effect=fake_get):
             with self.assertRaises(eli.VerificationUnknown):
                 eli._tj_z_tekstem("/acts/DU/2024/18", refs)
+
+    def test_strict_blokuje_starszy_tekst_jednolity(self):
+        refs = {"Tekst jednolity dla aktu": [
+            {"act": {"ELI": "DU/1964/296", "displayAddress": "Dz.U. 1964 poz. 296"}}]}
+        base_refs = {"Inf. o tekście jednolitym": [
+            {"act": {"ELI": "DU/2026/468", "displayAddress": "Dz.U. 2026 poz. 468"}},
+            {"act": {"ELI": "DU/2024/1568", "displayAddress": "Dz.U. 2024 poz. 1568"}},
+        ]}
+
+        def fake_get(path, params=None, soft=False):
+            if path == "/acts/DU/2026/468/references":
+                return refs
+            if path == "/acts/DU/1964/296/references":
+                return base_refs
+            if path == "/acts/DU/2026/468/text.html":
+                return ""
+            if path == "/acts/DU/2024/1568/text.html":
+                return "<p>Art. 1. Starsza treść.</p>"
+            raise AssertionError(path)
+
+        args = argparse.Namespace(sygnatura=["DU", "2026", "468"], json=False,
+                                  strict=True, pdf=None, fragment=None)
+        out = io.StringIO()
+        with mock.patch.object(eli, "_get", side_effect=fake_get), \
+                contextlib.redirect_stdout(out):
+            with self.assertRaisesRegex(SystemExit, "strict.*starszego tekstu jednolitego"):
+                eli.cmd_tekst(args)
+        self.assertNotIn("Starsza treść", out.getvalue())
+
+    def test_tj_json_strict_sprawdza_nowszy_tekst_przed_wynikiem(self):
+        refs = {"Tekst jednolity dla aktu": [
+            {"act": {"ELI": "DU/1964/296", "displayAddress": "Dz.U. 1964 poz. 296"}}]}
+        base_refs = {"Inf. o tekście jednolitym": [
+            {"act": {"ELI": "DU/2026/500", "displayAddress": "Dz.U. 2026 poz. 500"}},
+            {"act": {"ELI": "DU/2024/1568", "displayAddress": "Dz.U. 2024 poz. 1568"}},
+        ]}
+
+        def fake_get(path, params=None, soft=False):
+            if path == "/acts/DU/2024/1568/references":
+                return refs
+            if path == "/acts/DU/1964/296/references":
+                return base_refs
+            raise AssertionError(path)
+
+        args = argparse.Namespace(sygnatura=["DU", "2024", "1568"], json=True, strict=True)
+        out = io.StringIO()
+        with mock.patch.object(eli, "_get", side_effect=fake_get), \
+                contextlib.redirect_stdout(out):
+            with self.assertRaisesRegex(SystemExit, "strict.*nowszy"):
+                eli.cmd_tj(args)
+        self.assertEqual(out.getvalue(), "")
 
 
 if __name__ == "__main__":

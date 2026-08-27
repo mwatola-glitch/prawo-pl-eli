@@ -15,6 +15,7 @@ Komendy:
   odniesienia <sygnatura...>     nowelizacje, tekst jednolity, podstawa prawna
   tj <sygnatura...>              znajduje AKTUALNY TEKST JEDNOLITY dla aktu i podaje jego sygnaturę
 Globalnie: --json  (zrzut surowego JSON zamiast podsumowania)
+           --strict  (blokuje wynik bez zweryfikowanej aktualności lub kompletności)
 """
 import sys, json, re, time, argparse, urllib.request, urllib.parse, urllib.error
 from html.parser import HTMLParser
@@ -307,6 +308,23 @@ def _tj_z_tekstem(path, refs):
     return None
 
 
+def _nowszy_tj(path, refs):
+    """Zwraca nowszy tekst jednolity dla aktu, który sam jest tekstem jednolitym."""
+    base_key = next((k for k in refs if k.lower().startswith("tekst jednolity dla aktu")), None)
+    items = (refs[base_key] if isinstance(refs[base_key], list) else [refs[base_key]]) \
+        if base_key else []
+    base = next((r.get("act") for r in items
+                 if isinstance(r, dict) and isinstance(r.get("act"), dict)), None)
+    current = re.match(r"^/acts/(DU|MP)/(\d+)/(\d+)$", path)
+    if not base or not base.get("ELI") or not current:
+        return None
+    base_refs = _get(f"/acts/{base['ELI']}/references", soft=True)
+    newer = _tj_acts(base_refs) if isinstance(base_refs, dict) else []
+    if newer and _eli_rok_poz(newer[0]) > (int(current.group(2)), int(current.group(3))):
+        return newer[0]
+    return None
+
+
 def act_path(sig_parts):
     """Zwraca ścieżkę bazową aktu, akceptując różne formy sygnatury."""
     s = " ".join(sig_parts).strip()
@@ -391,11 +409,17 @@ def cmd_tekst(a):
     try:
         refs = _get(path + "/references", soft=True)
     except VerificationUnknown as e:
+        if getattr(a, "strict", False):
+            raise
         refs = None
         ostrz = [f"UWAGA: nie udało się zweryfikować aktualności aktu {label} ({e}) — "
                  "sprawdź nowelizacje i teksty jednolite ręcznie, zanim zacytujesz."]
     else:
         ostrz = _ostrzezenia(refs) if isinstance(refs, dict) else []
+    if getattr(a, "strict", False) and ostrz:
+        sys.exit(f"BŁĄD: strict blokuje tekst aktu {label}, ponieważ kontrola aktualności "
+                 "wykazała tekst jednolity albo późniejsze zmiany. Użyj wskazanego aktualnego "
+                 "tekstu i sprawdź jego odniesienia.")
     if a.pdf:
         # pobierz urzędowy PDF (preferuj tekst jednolity, typ 'U'/'T', inaczej oryginał 'O')
         meta = _expect_dict(_get(path), "metadane aktu")
@@ -430,6 +454,10 @@ def cmd_tekst(a):
                      f"Pobierz urzędowy PDF: tekst {label} --pdf plik.pdf")
         act, txt = fb
         addr = act.get("displayAddress") or act.get("ELI", "")
+        if getattr(a, "strict", False):
+            sys.exit(f"BŁĄD: strict zabrania zwrócenia starszego tekstu jednolitego "
+                     f"{act.get('ELI') or addr} zamiast pustego text.html dla {label}. "
+                     f"Pobierz urzędowy PDF: tekst {label} --pdf plik.pdf")
         sig = (act.get("ELI") or "").replace("/", " ")
         ostrz = [f"UWAGA: text.html dla {label} jest PUSTE w API — poniżej tekst z innego t.j.: {addr}.",
                  f"Nałóż zmiany pomiędzy nimi: odniesienia {sig} (sekcja „Nowelizacje po tekście jednolitym\");"
@@ -529,6 +557,12 @@ def cmd_odniesienia(a):
 def cmd_tj(a):
     path, label = act_path(a.sygnatura)
     d = _get(path + "/references")
+    if getattr(a, "strict", False):
+        d = _expect_dict(d, "odniesienia aktu")
+        newer = _nowszy_tj(path, d)
+        if newer:
+            sys.exit(f"BŁĄD: strict blokuje nieaktualny tekst jednolity {label}; nowszy to "
+                     f"{newer.get('displayAddress') or newer.get('ELI', '')}.")
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2)); return
     d = _expect_dict(d, "odniesienia aktu")
@@ -574,6 +608,8 @@ def main():
     ap = argparse.ArgumentParser(description="API ELI Sejmu (read-only). Źródło pierwotne prawa polskiego.")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--json", action="store_true", help="zrzut surowego JSON")
+    ap.add_argument("--strict", action="store_true",
+                    help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("szukaj"); s.add_argument("fraza", nargs="?", default=None); s.add_argument("--typ"); s.add_argument("--rok")
@@ -598,6 +634,8 @@ def main():
     for p in sub.choices.values():
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                        help="zrzut surowego JSON")
+        p.add_argument("--strict", action="store_true", default=argparse.SUPPRESS,
+                       help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
 
     a = ap.parse_args()
     try:

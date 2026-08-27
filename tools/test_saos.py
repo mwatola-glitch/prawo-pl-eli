@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """Offline unit tests for saos.py pure functions (no network). Run: python3 tools/test_saos.py"""
 import argparse
+import contextlib
+import io
 import sys
 import importlib.util
 import pathlib
@@ -198,6 +200,10 @@ class TestFlagaJson(unittest.TestCase):
     def test_bez_flagi(self):
         self.assertFalse(self._parsuj(self.ARGV)["json"])
 
+    def test_strict_przed_i_po_komendzie(self):
+        self.assertTrue(self._parsuj(["--strict"] + self.ARGV)["strict"])
+        self.assertTrue(self._parsuj(self.ARGV + ["--strict"])["strict"])
+
 
 class _Response:
     headers = {"Content-Type": "application/json"}
@@ -237,6 +243,27 @@ class SaosVerificationContractTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "nie udało się zweryfikować") as caught:
                 saos.cmd_sygnatura(args)
         self.assertNotIn("Nie znaleziono orzeczenia", str(caught.exception))
+
+    def test_strict_blokuje_zakres_poza_zamknietym_zbiorem(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "argv",
+                               ["saos.py", "szukaj", "--sad", "SN", "--od", "2024-01-01",
+                                "--strict"]), \
+                mock.patch.object(saos, "_get") as get_mock, \
+                contextlib.redirect_stdout(out):
+            with self.assertRaisesRegex(SystemExit, "strict.*poza zakresem"):
+                saos.main()
+        get_mock.assert_not_called()
+        self.assertEqual(out.getvalue(), "")
+
+    def test_strict_blokuje_niekompletny_zbior_administracyjny(self):
+        args = argparse.Namespace(sad="admin", fraza="RODO", sygnatura=None, przepis=None,
+                                  sedzia=None, haslo=None, typ=None, od=None, do=None,
+                                  limit=10, strona=0, json=False, strict=True)
+        with mock.patch.object(saos, "_get") as get_mock:
+            with self.assertRaisesRegex(SystemExit, "niekompletny zbiór"):
+                saos.cmd_szukaj(args)
+        get_mock.assert_not_called()
 
 
 if __name__ == "__main__":

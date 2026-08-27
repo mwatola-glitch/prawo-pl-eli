@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """Offline unit tests for eurlex.py pure functions (no network). Run: python3 tools/test_eurlex.py"""
 import argparse
+import contextlib
+import io
 import sys
 import importlib.util
 import pathlib
@@ -161,6 +163,10 @@ class TestFlagaJson(unittest.TestCase):
     def test_bez_flagi(self):
         self.assertFalse(self._parsuj(self.ARGV)["json"])
 
+    def test_strict_przed_i_po_komendzie(self):
+        self.assertTrue(self._parsuj(["--strict"] + self.ARGV)["strict"])
+        self.assertTrue(self._parsuj(self.ARGV + ["--strict"])["strict"])
+
 
 class EurlexVerificationContractTests(unittest.TestCase):
     """found/verified_absent/unknown - blad transportu nie moze wygladac jak potwierdzony brak."""
@@ -190,6 +196,43 @@ class EurlexVerificationContractTests(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertIn("nie udało się zweryfikować", out[0])
         self.assertIn("skonsolidowany 32016R0679", out[0])
+
+    def test_strict_blokuje_tekst_przy_awarii_konsolidacji(self):
+        args = argparse.Namespace(celex=["32016R0679"], jezyk="pol", json=False,
+                                  strict=True, pdf=None, fragment=None)
+        out = io.StringIO()
+        with mock.patch.object(eurlex, "_http",
+                               return_value=(b"<p>Artykul 1. Tresc.</p>", "text/html")), \
+                mock.patch.object(eurlex, "_konsolidacje",
+                                  side_effect=eurlex.VerificationUnknown("timeout")), \
+                contextlib.redirect_stdout(out):
+            with self.assertRaisesRegex(eurlex.VerificationUnknown, "timeout"):
+                eurlex.cmd_tekst(args)
+        self.assertEqual(out.getvalue(), "")
+
+
+class TestTransportHttps(unittest.TestCase):
+    def test_http_podnosi_url_cellar_do_https(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b"OK"
+        response.headers.get.return_value = "text/plain"
+        with mock.patch.object(eurlex._opener, "open", return_value=response) as open_mock:
+            eurlex._http("http://publications.europa.eu/resource/celex/X")
+        request = open_mock.call_args.args[0]
+        self.assertEqual(request.full_url,
+                         "https://publications.europa.eu/resource/celex/X")
+
+    def test_przekierowanie_http_do_obcego_hosta_jest_odrzucone(self):
+        request = eurlex.urllib.request.Request(
+            "https://publications.europa.eu/resource/celex/X")
+        with self.assertRaisesRegex(eurlex.urllib.error.URLError, "niezaufany host"):
+            eurlex._PrzekierowaniaHttps().redirect_request(
+                request, None, 303, "See Other", {}, "http://example.test/legal-content")
+
+    def test_http_odrzuca_obcy_host_takze_po_https(self):
+        with self.assertRaisesRegex(SystemExit, "zaufanym HTTPS"):
+            eurlex._http("https://example.test/legal-content")
 
 
 if __name__ == "__main__":

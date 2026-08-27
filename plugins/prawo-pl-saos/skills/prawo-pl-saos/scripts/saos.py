@@ -18,6 +18,7 @@ Komendy:
   orzeczenie <id> [--fragment "<fraza>"]   pełne orzeczenie: metadane, powołane przepisy/orzeczenia, treść
   sygnatura <sygnatura...>                  znajdź orzeczenie po numerze sprawy (caseNumber)
 Globalnie: --json  (zrzut surowego JSON zamiast podsumowania)
+           --strict  (blokuje wynik bez zweryfikowanej aktualności lub kompletności)
 """
 import sys, json, re, time, argparse, urllib.request, urllib.parse, urllib.error
 from html.parser import HTMLParser
@@ -77,6 +78,21 @@ def _ostrzezenie_zasiegu(ct, od=None):
     if od and od[:4].isdigit() and int(od[:4]) > rok:
         tekst += f"\n     Twój zakres zaczyna się od {od}, czyli POZA zbiorem — stąd zero wyników."
     return tekst
+
+
+def _zakres_niekompletny(ct, data_od=None, data_do=None):
+    """Czy zapytanie obejmuje okres po ostatnim roczniku dostępnym w SAOS."""
+    if ct == "ADMINISTRATIVE":
+        return True
+    wpis = ZASIEG.get(ct or "")
+    if not wpis:
+        return False
+    ostatni_rok = wpis[0]
+    if data_od and (not data_od[:4].isdigit() or int(data_od[:4]) > ostatni_rok):
+        return True
+    if not data_do:
+        return True
+    return not data_do[:4].isdigit() or int(data_do[:4]) > ostatni_rok
 
 
 def _get(path, params=None, soft=False):
@@ -280,6 +296,14 @@ def _wiersz(it):
 
 def cmd_szukaj(a):
     ct = _court_type(a.sad)
+    if getattr(a, "strict", False) and _zakres_niekompletny(ct, a.od, a.do):
+        if ct == "ADMINISTRATIVE":
+            sys.exit("BŁĄD: strict blokuje niekompletny zbiór sądów administracyjnych w SAOS. "
+                     "Użyj CBOSA przez skill prawo-pl-cbosa.")
+        ostatni_rok = ZASIEG[ct][0]
+        sys.exit(f"BŁĄD: strict blokuje zapytanie poza zakresem kompletności SAOS. "
+                 f"Zbiór {CT_PL.get(ct, ct)} kończy się na {ostatni_rok} r.; "
+                 f"ogranicz --do do {ostatni_rok}-12-31 albo użyj aktualnego źródła sądu.")
     params = {
         "all": a.fraza,
         "caseNumber": a.sygnatura,
@@ -414,6 +438,8 @@ def main():
     ap = argparse.ArgumentParser(description="API SAOS (read-only). Baza orzecznictwa polskiego: SN/TK/sądy powszechne/KIO.")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--json", action="store_true", help="zrzut surowego JSON")
+    ap.add_argument("--strict", action="store_true",
+                    help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("szukaj")
@@ -444,6 +470,8 @@ def main():
     for p in sub.choices.values():
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                        help="zrzut surowego JSON")
+        p.add_argument("--strict", action="store_true", default=argparse.SUPPRESS,
+                       help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
 
     a = ap.parse_args()
     try:
