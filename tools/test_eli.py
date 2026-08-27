@@ -4,6 +4,7 @@
 import argparse
 import contextlib
 import io
+import json
 import sys
 import importlib.util
 import pathlib
@@ -315,6 +316,57 @@ class _Response:
 
     def read(self):
         return self.body
+
+
+class TestTekstHttp(unittest.TestCase):
+    """Zachowanie komendy tekst na odpowiedziach HTTP z API ELI."""
+
+    def _uruchom(self, odpowiedzi):
+        def fake_urlopen(req, timeout=30):
+            return odpowiedzi[req.full_url]
+
+        out = io.StringIO()
+        with mock.patch.object(eli.urllib.request, "urlopen", side_effect=fake_urlopen), \
+                mock.patch.object(sys, "argv", ["eli.py", "tekst", "DU", "2026", "468"]), \
+                contextlib.redirect_stdout(out):
+            eli.main()
+        return out.getvalue()
+
+    def test_pusty_html_200_nie_zwraca_starszego_aktu_z_kodem_0(self):
+        refs_tj = {"Tekst jednolity dla aktu": [
+            {"act": {"ELI": "DU/1964/296", "displayAddress": "Dz.U. 1964 nr 43 poz. 296"}}]}
+        refs_bazowe = {"Inf. o tekście jednolitym": [
+            {"act": {"ELI": "DU/2026/468", "displayAddress": "Dz.U. 2026 poz. 468"}},
+            {"act": {"ELI": "DU/2024/1568", "displayAddress": "Dz.U. 2024 poz. 1568"}},
+        ]}
+        odpowiedzi = {
+            eli.BASE + "/acts/DU/2026/468/references": _Response(
+                json.dumps(refs_tj).encode(), "application/json"),
+            eli.BASE + "/acts/DU/2026/468/text.html": _Response(b"", "text/html"),
+            eli.BASE + "/acts/DU/1964/296/references": _Response(
+                json.dumps(refs_bazowe).encode(), "application/json"),
+            eli.BASE + "/acts/DU/2024/1568/text.html": _Response(
+                b"<p>Art. 743. Tekst starszego aktu.</p>", "text/html"),
+        }
+
+        with self.assertRaises(SystemExit) as raised:
+            self._uruchom(odpowiedzi)
+
+        self.assertNotIn(raised.exception.code, (None, 0))
+        self.assertIn("PUSTE", str(raised.exception.code))
+        self.assertIn("PDF", str(raised.exception.code))
+
+    def test_normalny_html_200_dalej_zwraca_tekst(self):
+        odpowiedzi = {
+            eli.BASE + "/acts/DU/2026/468/references": _Response(b"{}", "application/json"),
+            eli.BASE + "/acts/DU/2026/468/text.html": _Response(
+                b"<p>Art. 743. Tekst z zadanego aktu.</p>", "text/html"),
+        }
+
+        out = self._uruchom(odpowiedzi)
+
+        self.assertIn("# DU 2026 poz. 468", out)
+        self.assertIn("Art. 743. Tekst z zadanego aktu.", out)
 
 
 class EliVerificationContractTests(unittest.TestCase):
