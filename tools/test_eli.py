@@ -246,6 +246,10 @@ class TestFlagaJson(unittest.TestCase):
     def test_bez_flagi(self):
         self.assertFalse(self._parsuj(self.ARGV)["json"])
 
+    def test_strict_przed_i_po_komendzie(self):
+        self.assertTrue(self._parsuj(["--strict"] + self.ARGV)["strict"])
+        self.assertTrue(self._parsuj(self.ARGV + ["--strict"])["strict"])
+
 
 class _Response:
     def __init__(self, body, content_type="application/json"):
@@ -349,6 +353,103 @@ class EliVerificationContractTests(unittest.TestCase):
             eli.cmd_tekst(args)
         self.assertIn("Art. 1. Treść przepisu.", out.getvalue())
         self.assertIn("nie udało się zweryfikować aktualności", out.getvalue())
+
+    def test_strict_blokuje_tekst_przy_awarii_odniesien(self):
+        def fake_get(path, params=None, soft=False):
+            if path.endswith("/references"):
+                raise eli.VerificationUnknown("timeout")
+            return "<html><body><p>Art. 1. Treść przepisu.</p></body></html>"
+
+        args = argparse.Namespace(sygnatura=["DU", "2024", "18"], json=False,
+                                  strict=True, pdf=None, fragment=None)
+        out = io.StringIO()
+        with mock.patch.object(eli, "_get", side_effect=fake_get), \
+                contextlib.redirect_stdout(out):
+            with self.assertRaisesRegex(eli.VerificationUnknown, "timeout"):
+                eli.cmd_tekst(args)
+        self.assertEqual(out.getvalue(), "")
+
+    def test_szukaj_strict_blokuje_niepelna_strone(self):
+        args = argparse.Namespace(fraza="kodeks", haslo=None, typ=None, rok=None, wyd=None,
+                                  obowiazujace=False, limit=1, offset=0, json=True, strict=True)
+        with mock.patch.object(eli, "_get", return_value={"count": 2, "items": [{}]}):
+            with self.assertRaisesRegex(SystemExit, "strict.*niepełną stronę"):
+                eli.cmd_szukaj(args)
+
+    def test_meta_strict_sprawdza_aktualnosc_przed_json(self):
+        refs = {"Inf. o tekście jednolitym": [
+            {"act": {"ELI": "DU/2025/1", "displayAddress": "Dz.U. 2025 poz. 1"}}]}
+        args = argparse.Namespace(sygnatura=["DU", "2000", "1"], json=True, strict=True)
+        with mock.patch.object(eli, "_get", side_effect=[{"title": "Akt"}, refs]):
+            with self.assertRaisesRegex(SystemExit, "strict blokuje metadane"):
+                eli.cmd_meta(args)
+
+    def test_struktura_strict_sprawdza_aktualnosc_przed_json(self):
+        refs = {"Nowelizacje po tekście jednolitym": [{"act": {"ELI": "DU/2025/2"}}]}
+        args = argparse.Namespace(sygnatura=["DU", "2000", "1"], filtr=None, poziom=None,
+                                  json=True, strict=True)
+        with mock.patch.object(eli, "_get", side_effect=[[{"id": "art_1"}], refs]):
+            with self.assertRaisesRegex(SystemExit, "strict blokuje strukturę"):
+                eli.cmd_struktura(args)
+
+    def test_odniesienia_strict_odrzuca_niepelna_odpowiedz_przed_json(self):
+        args = argparse.Namespace(sygnatura=["DU", "2000", "1"], json=True, strict=True)
+        with mock.patch.object(eli, "_get", return_value=[]):
+            with self.assertRaisesRegex(SystemExit, "nieoczekiwaną odpowiedź"):
+                eli.cmd_odniesienia(args)
+
+    def test_tj_json_strict_sprawdza_nowszy_tekst_przed_wynikiem(self):
+        refs = {"Tekst jednolity dla aktu": [
+            {"act": {"ELI": "DU/1964/296", "displayAddress": "Dz.U. 1964 poz. 296"}}]}
+        base_refs = {"Inf. o tekście jednolitym": [
+            {"act": {"ELI": "DU/2026/500", "displayAddress": "Dz.U. 2026 poz. 500"}},
+            {"act": {"ELI": "DU/2024/1568", "displayAddress": "Dz.U. 2024 poz. 1568"}},
+        ]}
+
+        def fake_get(path, params=None, soft=False):
+            if path == "/acts/DU/2024/1568/references":
+                return refs
+            if path == "/acts/DU/1964/296/references":
+                return base_refs
+            raise AssertionError(path)
+
+        args = argparse.Namespace(sygnatura=["DU", "2024", "1568"], json=True, strict=True)
+        out = io.StringIO()
+        with mock.patch.object(eli, "_get", side_effect=fake_get), \
+                contextlib.redirect_stdout(out):
+            with self.assertRaisesRegex(SystemExit, "strict.*nowszy"):
+                eli.cmd_tj(args)
+        self.assertEqual(out.getvalue(), "")
+
+    def test_tj_strict_sprawdza_zmiany_po_najnowszym_tj(self):
+        refs = {"Inf. o tekście jednolitym": [
+            {"act": {"ELI": "DU/2025/100", "displayAddress": "Dz.U. 2025 poz. 100"}}]}
+        latest_refs = {"Nowelizacje po tekście jednolitym": [
+            {"act": {"ELI": "DU/2026/20"}}]}
+        args = argparse.Namespace(sygnatura=["DU", "2000", "1"], json=True, strict=True)
+        with mock.patch.object(eli, "_get", side_effect=[refs, latest_refs]):
+            with self.assertRaisesRegex(SystemExit, "strict blokuje tekst jednolity"):
+                eli.cmd_tj(args)
+
+
+class TestLokalneHelpery(unittest.TestCase):
+    def test_cztery_skille_nie_szukaja_i_nie_pobieraja_helpera(self):
+        skills = (
+            "plugins/prawo-pl-eli/skills/prawo-pl-eli/SKILL.md",
+            "plugins/prawo-eu-eurlex/skills/prawo-eu-eurlex/SKILL.md",
+            "plugins/prawo-pl-saos/skills/prawo-pl-saos/SKILL.md",
+            "plugins/prawo-pl-cbosa/skills/prawo-pl-cbosa/SKILL.md",
+        )
+        for relative in skills:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(skill=relative):
+                self.assertNotIn("raw.githubusercontent.com", text)
+                self.assertNotIn("$(find ", text)
+                self.assertNotIn("/bezwzględna/ścieżka", text)
+                self.assertNotIn("SKILL_MD=", text)
+                self.assertIn("CLAUDE_PLUGIN_ROOT", text)
+                self.assertIn("bez CLAUDE_PLUGIN_ROOT nie ma bezpiecznego fallbacku", text)
+                self.assertIn("brak helpera bieżącego pakietu", text)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

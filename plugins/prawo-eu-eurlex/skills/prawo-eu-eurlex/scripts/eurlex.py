@@ -14,6 +14,7 @@ Komendy:
   skonsolidowany <CELEX>         wersje skonsolidowane aktu (odpowiednik tekstu jednolitego)
   odniesienia <CELEX>            nowelizacje, sprostowania, podstawa prawna
 Globalnie: --json  (zrzut surowego JSON zamiast podsumowania)
+           --strict  (blokuje wynik bez zweryfikowanej aktualności lub kompletności)
 
 CELEX np.: 32016R0679 (RODO), 02016R0679-20160504 (wersja skonsolidowana), reg/2016/679 (ELI).
 """
@@ -27,6 +28,7 @@ CDM = "http://publications.europa.eu/ontology/cdm#"
 LANG_AUTH = "http://publications.europa.eu/resource/authority/language/"
 TYPE_AUTH = "http://publications.europa.eu/resource/authority/resource-type/"
 XSD_STR = "http://www.w3.org/2001/XMLSchema#string"
+CONTENT_HOSTS = ("publications.europa.eu", "data.europa.eu")
 
 JEZYKI = {"pl": "POL", "pol": "POL", "en": "ENG", "eng": "ENG", "de": "DEU", "deu": "DEU",
           "fr": "FRA", "fra": "FRA", "es": "SPA", "spa": "SPA", "it": "ITA", "ita": "ITA",
@@ -52,13 +54,46 @@ def _lang(j):
     sys.exit(f"Nieznany język: {j!r}. Użyj np. pol, eng, deu, fra (kod 3-literowy).")
 
 
+def _wymus_https(url):
+    """Podnosi transport HTTP do HTTPS dla oficjalnych hostów treści UE."""
+    parsed = urllib.parse.urlsplit(url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    allowed = any(host == item or host.endswith("." + item) for item in CONTENT_HOSTS)
+    if parsed.scheme.lower() == "http" and allowed:
+        return "https" + url[len(parsed.scheme):]
+    return url
+
+
+class _PrzekierowaniaHttps(urllib.request.HTTPRedirectHandler):
+    """Pozwala przekierować treść wyłącznie po HTTPS do oficjalnego hosta."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        safe_url = _wymus_https(newurl)
+        parsed = urllib.parse.urlsplit(safe_url)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        allowed = any(host == item or host.endswith("." + item) for item in CONTENT_HOSTS)
+        if parsed.scheme.lower() != "https" or not allowed:
+            raise urllib.error.URLError(
+                f"odrzucono przekierowanie treści na niezaufany host: {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, safe_url)
+
+
+_opener = urllib.request.build_opener(_PrzekierowaniaHttps())
+
+
 def _http(url, data=None, headers=None, timeout=60):
     """GET/POST z jednym ponowieniem na błąd przejściowy. Zwraca (bytes, content-type)."""
+    url = _wymus_https(url)
+    parsed = urllib.parse.urlsplit(url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    allowed = any(host == item or host.endswith("." + item) for item in CONTENT_HOSTS)
+    if parsed.scheme.lower() != "https" or not allowed:
+        sys.exit(f"BŁĄD: odmowa pobrania treści poza zaufanym HTTPS: {url}")
     req = urllib.request.Request(url, data=data, headers={
         "User-Agent": f"eurlex-skill/{__version__}", **(headers or {})})
     for attempt in (1, 2):
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with _opener.open(req, timeout=timeout) as r:
                 return r.read(), r.headers.get("Content-Type", "")
         except urllib.error.HTTPError as e:
             if e.code >= 500 and attempt == 1:
@@ -184,7 +219,7 @@ def celex_norm(parts):
              "02016R0679-20160504 (skonsolidowany), reg/2016/679 (ELI).")
 
 
-def _konsolidacje(celex):
+def _konsolidacje(celex, strict=False):
     """Lista CELEX-ów wersji skonsolidowanych albo VERIFIED_ABSENT jako [].
 
     VerificationUnknown jest przekazywany do wywołującego, bez zamiany na [].
@@ -195,11 +230,14 @@ def _konsolidacje(celex):
 SELECT DISTINCT ?celex WHERE {{
   ?w cdm:resource_legal_id_celex ?celex .
   FILTER(STRSTARTS(STR(?celex), "{base}-"))
-}} ORDER BY DESC(?celex) LIMIT 100""", soft=True)
-    return [c for c in (_v(b, "celex") for b in rows) if re.search(r"-\d{8}$", c)]
+}} ORDER BY DESC(?celex) LIMIT {101 if strict else 100}""", soft=True)
+    kons = [c for c in (_v(b, "celex") for b in rows) if re.search(r"-\d{8}$", c)]
+    if strict and len(rows) > 100:
+        sys.exit("BŁĄD: strict blokuje niepełną listę wersji skonsolidowanych (ponad 100 wyników).")
+    return kons
 
 
-def _ostrzezenia_konsolidacja(celex):
+def _ostrzezenia_konsolidacja(celex, strict=False):
     """Ostrzeżenia o wersjach skonsolidowanych dla aktu/wersji (lista linii).
 
     To informacja POBOCZNA przy tekście/metadanych — awaria SPARQL nie może odebrać
@@ -208,17 +246,29 @@ def _ostrzezenia_konsolidacja(celex):
     try:
         kons = _konsolidacje(celex)
     except VerificationUnknown as e:
+        if strict:
+            raise
         return [f"UWAGA: nie udało się zweryfikować, czy akt {celex} ma wersje skonsolidowane "
                 f"({e}) — sprawdź komendą: skonsolidowany {celex}, zanim zacytujesz."]
     out = []
     if celex.startswith("0"):
+        if strict and not kons:
+            sys.exit(f"BŁĄD: strict nie potwierdził listy wersji skonsolidowanych dla {celex}.")
         out.append("UWAGA: wersja skonsolidowana ma charakter DOKUMENTACYJNY (nie jest autentyczna) — "
                    "do urzędowego cytatu wskaż akt bazowy + zmiany.")
         if kons and kons[0] > celex:
+            if strict:
+                sys.exit(f"BŁĄD: strict blokuje starszą wersję skonsolidowaną {celex}; "
+                         f"nowsza wersja to {kons[0]}.")
             out.append(f"UWAGA: istnieje NOWSZA wersja skonsolidowana: {kons[0]} — używaj jej.")
     elif kons:
+        if strict:
+            sys.exit(f"BŁĄD: strict blokuje akt bazowy {celex}; aktualna wersja "
+                     f"skonsolidowana to {kons[0]}.")
         out.append(f"UWAGA: akt ma wersje skonsolidowane — do analizy aktualnego stanu użyj najnowszej: "
                    f"{kons[0]} (pełna lista: skonsolidowany {celex}).")
+    elif strict:
+        sys.exit(f"BŁĄD: strict nie potwierdził aktualnej wersji skonsolidowanej dla aktu {celex}.")
     return out
 
 
@@ -245,8 +295,11 @@ SELECT DISTINCT ?celex ?date ?title ?inf WHERE {{
   ?exp cdm:expression_uses_language <{LANG_AUTH}{lang}> .
   ?exp cdm:expression_title ?title .
   {' '.join(filt)}
-}} ORDER BY DESC(?date) LIMIT {a.limit}"""
+}} ORDER BY DESC(?date) LIMIT {a.limit + 1 if getattr(a, 'strict', False) else a.limit}"""
     rows = _sparql(q)
+    if getattr(a, "strict", False) and len(rows) > a.limit:
+        sys.exit(f"BŁĄD: strict blokuje niepełną listę wyników: zapytanie ma więcej niż "
+                 f"{a.limit} trafień. Zwiększ --limit.")
     if a.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2)); return
     if not rows:
@@ -279,6 +332,8 @@ SELECT ?type ?date ?inf ?eli ?eiv ?eov ?title WHERE {{
               ?exp cdm:expression_uses_language <{LANG_AUTH}{lang}> .
               ?exp cdm:expression_title ?title }}
 }}""")
+    strict = getattr(a, "strict", False)
+    strict_warnings = _ostrzezenia_konsolidacja(celex, True) if strict else None
     if a.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2)); return
     if not rows:
@@ -302,14 +357,15 @@ SELECT ?type ?date ?inf ?eli ?eiv ?eov ?title WHERE {{
     if zb["eli"]:
         print(f"  ELI:     {zb['eli'][0]}")
     print(f"  Tekst:   python3 {sys.argv[0]} tekst {celex} --jezyk pol --fragment \"art. N\"")
-    for w in _ostrzezenia_konsolidacja(celex):
+    for w in (strict_warnings if strict_warnings is not None else
+              _ostrzezenia_konsolidacja(celex)):
         print(w)
 
 
 def cmd_skonsolidowany(a):
     celex = celex_norm(a.celex)
     try:
-        kons = _konsolidacje(celex)
+        kons = _konsolidacje(celex, strict=getattr(a, "strict", False))
     except VerificationUnknown as e:
         _nie_zweryfikowano(f"wersji skonsolidowanych dla {celex}", e)
     if a.json:
@@ -346,6 +402,8 @@ def cmd_tekst(a):
     lang = _lang(a.jezyk)
     lang3 = lang.lower()
     url = CELLAR + urllib.parse.quote(celex, safe="/")
+    strict = getattr(a, "strict", False)
+    strict_warnings = _ostrzezenia_konsolidacja(celex, True) if strict else None
     if a.pdf:
         try:
             pdf_url = _pdf_url(celex, lang)
@@ -357,15 +415,17 @@ def cmd_tekst(a):
         with open(a.pdf, "wb") as f:
             f.write(data)
         print(f"Zapisano PDF ({len(data)} B): {a.pdf}\n(źródło: {pdf_url}, język {lang3})")
-        for w in _ostrzezenia_konsolidacja(celex):
+        for w in (strict_warnings if strict_warnings is not None else
+                  _ostrzezenia_konsolidacja(celex)):
             print(w)
         return
     raw, _ = _http(url, headers={"Accept": "application/xhtml+xml", "Accept-Language": lang3})
     txt = html_to_text(raw.decode("utf-8", "replace"))
     if not txt:
         sys.exit(f"Pusty tekst XHTML dla {celex} (język {lang3}) — spróbuj --pdf albo inny --jezyk.")
+    ostrz = (strict_warnings if strict_warnings is not None else
+             _ostrzezenia_konsolidacja(celex))
     print(f"# CELEX {celex} ({lang3}) — tekst z CELLAR (XHTML→tekst; do dosłownego cytatu zweryfikuj z PDF)\n")
-    ostrz = _ostrzezenia_konsolidacja(celex)
     for w in ostrz:
         print(w)
     if ostrz:
@@ -402,7 +462,9 @@ SELECT DISTINCT ?kier ?c2 WHERE {{
   UNION
   {{ ?w cdm:resource_legal_amends_resource_legal ?o . ?o cdm:resource_legal_id_celex ?c2 .
      BIND("Zmienia (akty zmieniane przez ten akt)" AS ?kier) }}
-}} ORDER BY ?kier DESC(?c2) LIMIT 300""")
+}} ORDER BY ?kier DESC(?c2) LIMIT {301 if getattr(a, 'strict', False) else 300}""")
+    if getattr(a, "strict", False) and len(rows) > 300:
+        sys.exit("BŁĄD: strict blokuje niepełną listę odniesień (ponad 300 relacji).")
     if a.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2)); return
     print(f"Odniesienia dla: CELEX {celex}\n")
@@ -426,6 +488,8 @@ def main():
         description="CELLAR/EUR-Lex (read-only, bez klucza). Źródło pierwotne prawa UE.")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--json", action="store_true", help="zrzut surowego JSON")
+    ap.add_argument("--strict", action="store_true",
+                    help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("szukaj"); s.add_argument("fraza", nargs="?")
@@ -450,6 +514,8 @@ def main():
     for p in sub.choices.values():
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                        help="zrzut surowego JSON")
+        p.add_argument("--strict", action="store_true", default=argparse.SUPPRESS,
+                       help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
 
     a = ap.parse_args()
     try:

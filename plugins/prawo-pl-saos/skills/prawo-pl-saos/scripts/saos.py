@@ -18,6 +18,7 @@ Komendy:
   orzeczenie <id> [--fragment "<fraza>"]   pełne orzeczenie: metadane, powołane przepisy/orzeczenia, treść
   sygnatura <sygnatura...>                  znajdź orzeczenie po numerze sprawy (caseNumber)
 Globalnie: --json  (zrzut surowego JSON zamiast podsumowania)
+           --strict  (odrzucane: SAOS nie pozwala potwierdzić aktualności ani kompletności)
 """
 import sys, json, re, time, argparse, urllib.request, urllib.parse, urllib.error
 from html.parser import HTMLParser
@@ -77,6 +78,21 @@ def _ostrzezenie_zasiegu(ct, od=None):
     if od and od[:4].isdigit() and int(od[:4]) > rok:
         tekst += f"\n     Twój zakres zaczyna się od {od}, czyli POZA zbiorem — stąd zero wyników."
     return tekst
+
+
+def _zakres_niekompletny(ct, data_od=None, data_do=None):
+    """Czy zapytanie obejmuje okres po ostatnim roczniku dostępnym w SAOS."""
+    if ct == "ADMINISTRATIVE":
+        return True
+    wpis = ZASIEG.get(ct or "")
+    if not wpis:
+        return False
+    ostatni_rok = wpis[0]
+    if data_od and (not data_od[:4].isdigit() or int(data_od[:4]) > ostatni_rok):
+        return True
+    if not data_do:
+        return True
+    return not data_do[:4].isdigit() or int(data_do[:4]) > ostatni_rok
 
 
 def _get(path, params=None, soft=False):
@@ -278,7 +294,14 @@ def _wiersz(it):
     print()
 
 
+def _odrzuc_strict(a, komenda):
+    if getattr(a, "strict", False):
+        sys.exit(f"BŁĄD: komenda {komenda} odrzuca --strict. SAOS jest wtórnym, częściowo "
+                 "zamkniętym agregatem i nie pozwala potwierdzić aktualności ani kompletności wyniku.")
+
+
 def cmd_szukaj(a):
+    _odrzuc_strict(a, "szukaj")
     ct = _court_type(a.sad)
     params = {
         "all": a.fraza,
@@ -322,6 +345,7 @@ def cmd_szukaj(a):
 
 
 def cmd_orzeczenie(a):
+    _odrzuc_strict(a, "orzeczenie")
     d = _get(f"/judgments/{a.id}")
     d = _expect_judgment(d, a.id)
     if a.json:
@@ -387,6 +411,7 @@ def cmd_orzeczenie(a):
 
 
 def cmd_sygnatura(a):
+    _odrzuc_strict(a, "sygnatura")
     sig = " ".join(a.sygnatura).strip()
     d = _get("/search/judgments", {"caseNumber": sig, "pageSize": 20, "pageNumber": 0,
                                    "sortingField": "JUDGMENT_DATE", "sortingDirection": "DESC"})
@@ -414,6 +439,8 @@ def main():
     ap = argparse.ArgumentParser(description="API SAOS (read-only). Baza orzecznictwa polskiego: SN/TK/sądy powszechne/KIO.")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--json", action="store_true", help="zrzut surowego JSON")
+    ap.add_argument("--strict", action="store_true",
+                    help="odrzuć flagę: SAOS nie pozwala potwierdzić aktualności ani kompletności")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("szukaj")
@@ -444,6 +471,8 @@ def main():
     for p in sub.choices.values():
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                        help="zrzut surowego JSON")
+        p.add_argument("--strict", action="store_true", default=argparse.SUPPRESS,
+                       help="odrzuć flagę: SAOS nie pozwala potwierdzić aktualności ani kompletności")
 
     a = ap.parse_args()
     try:

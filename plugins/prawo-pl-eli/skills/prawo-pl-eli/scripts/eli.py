@@ -15,6 +15,7 @@ Komendy:
   odniesienia <sygnatura...>     nowelizacje, tekst jednolity, podstawa prawna
   tj <sygnatura...>              znajduje AKTUALNY TEKST JEDNOLITY dla aktu i podaje jego sygnaturę
 Globalnie: --json  (zrzut surowego JSON zamiast podsumowania)
+           --strict  (blokuje wynik bez zweryfikowanej aktualności lub kompletności)
 """
 import sys, json, re, time, argparse, urllib.request, urllib.parse, urllib.error
 from html.parser import HTMLParser
@@ -270,6 +271,32 @@ def _ostrzezenia(refs):
     return out
 
 
+def _strict_powod_nieaktualnosci(refs):
+    """Pierwsza kategoria odniesień, która nie pozwala uznać wskazanego aktu za aktualny."""
+    prefiksy = ("inf. o tekście jednolit", "nowelizacje po tekście jednolit", "akty zmieniające")
+    return next((k for k, v in refs.items()
+                 if any(k.lower().startswith(p) for p in prefiksy) and v), None)
+
+
+def _nowszy_tj(path, refs):
+    """Zwraca nowszy tekst jednolity dla aktu, który sam jest tekstem jednolitym."""
+    base_key = next((k for k in refs if k.lower().startswith("tekst jednolity dla aktu")), None)
+    items = (refs[base_key] if isinstance(refs[base_key], list) else [refs[base_key]]) \
+        if base_key else []
+    base = next((r.get("act") for r in items
+                 if isinstance(r, dict) and isinstance(r.get("act"), dict)), None)
+    current = re.match(r"^/acts/(DU|MP)/(\d+)/(\d+)$", path)
+    if not base or not base.get("ELI") or not current:
+        raise VerificationUnknown("brak jednoznacznego powiązania tekstu jednolitego z aktem bazowym")
+    base_refs = _get(f"/acts/{base['ELI']}/references", soft=True)
+    if not isinstance(base_refs, dict):
+        raise VerificationUnknown("brak kompletnej odpowiedzi odniesień aktu bazowego")
+    newer = _tj_acts(base_refs)
+    if newer and _eli_rok_poz(newer[0]) > (int(current.group(2)), int(current.group(3))):
+        return newer[0]
+    return None
+
+
 def act_path(sig_parts):
     """Zwraca ścieżkę bazową aktu, akceptując różne formy sygnatury."""
     s = " ".join(sig_parts).strip()
@@ -306,6 +333,14 @@ def cmd_szukaj(a):
     if a.obowiazujace:
         params["inForce"] = 1
     d = _get("/acts/search", params)
+    if getattr(a, "strict", False):
+        d = _expect_dict(d, "wyniki wyszukiwania")
+        items, count = d.get("items"), d.get("count")
+        if not isinstance(items, list) or not isinstance(count, int):
+            sys.exit("BŁĄD: strict nie potwierdził kompletności wyników wyszukiwania.")
+        if a.offset != 0 or count != len(items):
+            sys.exit(f"BŁĄD: strict blokuje niepełną stronę wyników: łącznie {count}, "
+                     f"zwrócono {len(items)}, offset {a.offset}. Zwiększ --limit i użyj --offset 0.")
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2)); return
     d = _expect_dict(d, "wyniki wyszukiwania")
@@ -322,6 +357,12 @@ def cmd_szukaj(a):
 def cmd_meta(a):
     path, label = act_path(a.sygnatura)
     d = _get(path)
+    if getattr(a, "strict", False):
+        refs = _get(path + "/references", soft=True)
+        refs = _expect_dict(refs, "odniesienia aktu")
+        if _strict_powod_nieaktualnosci(refs):
+            sys.exit(f"BŁĄD: strict blokuje metadane aktu {label}, ponieważ kontrola aktualności "
+                     "wykazała tekst jednolity albo późniejsze zmiany.")
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2)); return
     d = _expect_dict(d, "metadane aktu")
@@ -354,11 +395,19 @@ def cmd_tekst(a):
     try:
         refs = _get(path + "/references", soft=True)
     except VerificationUnknown as e:
+        if getattr(a, "strict", False):
+            raise
         refs = None
         ostrz = [f"UWAGA: nie udało się zweryfikować aktualności aktu {label} ({e}) — "
                  "sprawdź nowelizacje i teksty jednolite ręcznie, zanim zacytujesz."]
     else:
+        if getattr(a, "strict", False):
+            refs = _expect_dict(refs, "odniesienia aktu")
         ostrz = _ostrzezenia(refs) if isinstance(refs, dict) else []
+    if getattr(a, "strict", False) and _strict_powod_nieaktualnosci(refs):
+        sys.exit(f"BŁĄD: strict blokuje tekst aktu {label}, ponieważ kontrola aktualności "
+                 "wykazała tekst jednolity albo późniejsze zmiany. Użyj wskazanego aktualnego "
+                 "tekstu i sprawdź jego odniesienia.")
     if a.pdf:
         # pobierz urzędowy PDF (preferuj tekst jednolity, typ 'U'/'T', inaczej oryginał 'O')
         meta = _expect_dict(_get(path), "metadane aktu")
@@ -417,6 +466,11 @@ def cmd_tekst(a):
 def cmd_struktura(a):
     path, label = act_path(a.sygnatura)
     d = _get(path + "/struct")
+    if getattr(a, "strict", False):
+        refs = _expect_dict(_get(path + "/references", soft=True), "odniesienia aktu")
+        if _strict_powod_nieaktualnosci(refs):
+            sys.exit(f"BŁĄD: strict blokuje strukturę aktu {label}, ponieważ kontrola aktualności "
+                     "wykazała tekst jednolity albo późniejsze zmiany.")
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2)); return
     nodes = d if isinstance(d, list) else [d] if isinstance(d, dict) else None
@@ -464,6 +518,8 @@ def _fmt_ref(ref):
 def cmd_odniesienia(a):
     path, label = act_path(a.sygnatura)
     d = _get(path + "/references")
+    if getattr(a, "strict", False):
+        d = _expect_dict(d, "odniesienia aktu")
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2)); return
     print(f"Odniesienia dla: {label}\n")
@@ -480,6 +536,28 @@ def cmd_odniesienia(a):
 def cmd_tj(a):
     path, label = act_path(a.sygnatura)
     d = _get(path + "/references")
+    if getattr(a, "strict", False):
+        d = _expect_dict(d, "odniesienia aktu")
+        tj = _tj_acts(d)
+        base_key = next((k for k in d if k.lower().startswith("tekst jednolity dla aktu")), None)
+        if tj:
+            latest_eli = tj[0].get("ELI")
+            if not latest_eli:
+                raise VerificationUnknown("najnowszy tekst jednolity nie ma identyfikatora ELI")
+            latest_refs = _expect_dict(
+                _get(f"/acts/{latest_eli}/references", soft=True),
+                "odniesienia najnowszego tekstu jednolitego")
+            if _strict_powod_nieaktualnosci(latest_refs):
+                sys.exit(f"BŁĄD: strict blokuje tekst jednolity {latest_eli}, ponieważ odnotowano "
+                         "późniejsze zmiany.")
+        elif base_key:
+            newer = _nowszy_tj(path, d)
+            if newer:
+                sys.exit(f"BŁĄD: strict blokuje nieaktualny tekst jednolity {label}; nowszy to "
+                         f"{newer.get('displayAddress') or newer.get('ELI', '')}.")
+            if _strict_powod_nieaktualnosci(d):
+                sys.exit(f"BŁĄD: strict blokuje tekst jednolity {label}, ponieważ odnotowano "
+                         "późniejsze zmiany.")
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2)); return
     d = _expect_dict(d, "odniesienia aktu")
@@ -525,6 +603,8 @@ def main():
     ap = argparse.ArgumentParser(description="API ELI Sejmu (read-only). Źródło pierwotne prawa polskiego.")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--json", action="store_true", help="zrzut surowego JSON")
+    ap.add_argument("--strict", action="store_true",
+                    help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("szukaj"); s.add_argument("fraza", nargs="?", default=None); s.add_argument("--typ"); s.add_argument("--rok")
@@ -549,6 +629,8 @@ def main():
     for p in sub.choices.values():
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                        help="zrzut surowego JSON")
+        p.add_argument("--strict", action="store_true", default=argparse.SUPPRESS,
+                       help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
 
     a = ap.parse_args()
     try:

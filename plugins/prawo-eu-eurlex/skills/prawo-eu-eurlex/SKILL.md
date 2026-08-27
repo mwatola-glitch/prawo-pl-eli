@@ -44,13 +44,20 @@ Urzędu Publikacji UE, które zasila EUR-Lex (SPARQL + REST, bez rejestracji i k
 Wszystko robi helper `scripts/eurlex.py` (tylko biblioteka standardowa Pythona — bez instalacji,
 bez klucza API). Skrypt leży **obok tego pliku SKILL.md** — NIE zakładaj, że to `~/.claude/skills/`
 (skill zainstalowany jako plugin leży w katalogu pluginów; w Claude Code:
-`${CLAUDE_PLUGIN_ROOT}/skills/prawo-eu-eurlex`). Gdy nie znasz ścieżki, najpierw ją ustal:
+`${CLAUDE_PLUGIN_ROOT}/skills/prawo-eu-eurlex`). Uruchamiaj wyłącznie helper z bieżącego pakietu:
 
 ```
-EURLEX=$(find "$HOME/.claude" "$HOME/.agents" /mnt /sessions -maxdepth 10 -name eurlex.py -path "*prawo-eu-eurlex*" 2>/dev/null | head -1)
-[ -n "$EURLEX" ] || { curl -fsSL https://raw.githubusercontent.com/jamarpl21/prawo-pl-eli/main/plugins/prawo-eu-eurlex/skills/prawo-eu-eurlex/scripts/eurlex.py -o /tmp/eurlex.py && EURLEX=/tmp/eurlex.py; }
+[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || {
+  echo "BŁĄD: bez CLAUDE_PLUGIN_ROOT nie ma bezpiecznego fallbacku do helpera bieżącego pakietu." >&2
+  exit 1
+}
+EURLEX="${CLAUDE_PLUGIN_ROOT}/skills/prawo-eu-eurlex/scripts/eurlex.py"
+[ -f "$EURLEX" ] || { echo "BŁĄD: brak helpera bieżącego pakietu: $EURLEX" >&2; exit 1; }
 python3 "$EURLEX" <komenda> [...]
 ```
+
+Bez `CLAUDE_PLUGIN_ROOT` fallbacku nie ma. Zatrzymaj się z powyższym błędem. Nie pobieraj helpera
+z sieci i nie szukaj go po katalogach użytkownika ani systemu.
 
 (W przykładach niżej `python3 scripts/eurlex.py` oznacza `python3 "$EURLEX"`, jeśli nie jesteś
 w katalogu skilla.)
@@ -79,7 +86,10 @@ wersje skonsolidowane `02016R0679-20160504`, sprostowania `32016R0679R(01)`, tra
   `--jezyk eng` — inna wersja językowa; `--pdf ŚCIEŻKA` zapisuje urzędowy PDF.
 - **odniesienia** — nowelizacje, sprostowania, podstawa prawna:
   `python3 scripts/eurlex.py odniesienia 32016R0679`
-- każda komenda przyjmuje `--json` (surowa odpowiedź do dalszego przetwarzania; działa przed komendą i po niej).
+- każda komenda przyjmuje `--json` oraz `--strict`; obie flagi działają przed komendą i po niej.
+  `--strict` wymaga pełnej listy w `szukaj`, `skonsolidowany` i `odniesienia`, a w `meta` i
+  `tekst` sprawdza dostępność oraz aktualność wersji skonsolidowanej. Brak albo niejednoznaczność
+  kontroli kończy komendę błędem.
 
 Narzędzie samo ostrzega: na akcie bazowym podpowiada najnowszą wersję skonsolidowaną; na wersji
 skonsolidowanej przypomina o jej dokumentacyjnym charakterze i o nowszych wersjach. Nie ignoruj

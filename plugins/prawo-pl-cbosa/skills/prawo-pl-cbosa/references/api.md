@@ -38,6 +38,14 @@ Odwrotnie jest poprawnie: samo `doDaty` (z pustym `odDaty`) filtruje „do dnia"
 POST zwraca stronę 1 + ciasteczka sesji (`Set-Cookie`). Kolejne strony: `GET /cbo/find?p=N`
 **z odesłaniem ciasteczek** (stan wyszukiwania trzymany w sesji). Stała wielkość strony: 10 wyników.
 
+## Kontrakt `--strict`
+
+Flaga działa przed komendą i po niej. W `szukaj` oraz `sygnatura` licznik trafień musi być
+rozpoznany, wynik musi pochodzić z pierwszej strony i wszystkie główne trafienia muszą mieścić
+się na tej stronie. W `orzeczenie` parser musi rozpoznać tytuł, metadane i co najmniej jedną
+z części: sentencję, tezy albo uzasadnienie. Każda nieudana lub niejednoznaczna kontrola kończy
+się kodem różnym od zera, także przy `--json`.
+
 ## Strona wyników — struktura HTML
 
 - liczba trafień: `Znaleziono <N> orzeczeń, Str. X z Y`
@@ -72,8 +80,8 @@ POST zwraca stronę 1 + ciasteczka sesji (`Set-Cookie`). Kolejne strony: `GET /c
 
 - **Throttling ≥0,5 s** między żądaniami (wbudowany). Serwer bywa przeciążony i ucina połączenia bez
   odpowiedzi — silnik ponawia z rosnącym odstępem; nie zrównoleglaj zapytań.
-- **SSL:** CBOSA serwuje niekompletny łańcuch certyfikatów — na części systemów weryfikacja pada;
-  silnik przechodzi wtedy (tylko dla tego hosta) na kontekst bez weryfikacji łańcucha (dane publiczne).
+- **SSL:** błąd weryfikacji certyfikatu kończy pobieranie jako `UNKNOWN`. Helper nigdy nie wyłącza
+  sprawdzania certyfikatu ani nazwy hosta. Problem łańcucha CA trzeba naprawić w środowisku.
 - **Symbole spraw** (pole `symbole`): 4-cyfrowe oznaczenia repertoriów, np. `611x` podatki
   (6112 PIT, 6110 VAT), `6014` prawo budowlane, `6320` pomoc społeczna, `6480` informacja publiczna.
   Pełny wykaz: zarządzenie Prezesa NSA (dostępne na stronach NSA).

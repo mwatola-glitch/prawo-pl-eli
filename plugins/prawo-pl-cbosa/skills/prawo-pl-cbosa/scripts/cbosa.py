@@ -18,6 +18,7 @@ Komendy:
   sygnatura <sygnatura...>                      znajdź orzeczenie po sygnaturze
 Globalnie: --json  (zrzut sparsowanych danych jako JSON zamiast podsumowania; działa przed
 komendą i po niej)
+           --strict  (blokuje wynik bez zweryfikowanej aktualności lub kompletności)
 """
 import sys, json, re, time, argparse, ssl, calendar, html as html_mod
 import urllib.request, urllib.parse, urllib.error, http.cookiejar
@@ -98,9 +99,8 @@ def _data(s, koniec=False):
     return f"{rok}-{mm:02d}-{dd:02d}"
 
 
-# ── HTTP: throttling, ciasteczka sesji (paginacja), awaryjny kontekst SSL ────────────────
+# HTTP: throttling, ciasteczka sesji (paginacja), zweryfikowany TLS
 _jar = http.cookiejar.CookieJar()
-_ssl_ctx = ssl.create_default_context()
 _ostatnie = [0.0]
 
 
@@ -111,9 +111,8 @@ def _fetch(path, data=None):
 
     CBOSA miewa kilkunastosekundowe okna, w których ucina połączenia bez odpowiedzi — stąd
     łącznie ~26 s ponawiania (za krótkie okno ponowień = fałszywy raport „skill nie działa").
-    CBOSA serwuje niekompletny łańcuch certyfikatów — na systemach, gdzie weryfikacja pada,
-    silnik przechodzi (tylko dla tego hosta) na kontekst bez weryfikacji łańcucha (dane publiczne)."""
-    global _ssl_ctx
+    Błąd weryfikacji certyfikatu kończy pobieranie jako UNKNOWN. Integralność treści
+    orzeczenia wymaga uwierzytelnionego transportu, także dla danych publicznych."""
     url = BASE + path
     body = urllib.parse.urlencode(data).encode("utf-8") if data is not None else None
     headers = {
@@ -123,6 +122,7 @@ def _fetch(path, data=None):
     }
     if body is not None:
         headers["Content-Type"] = "application/x-www-form-urlencoded"
+    ssl_ctx = ssl.create_default_context()
     # odstęp przed kolejną próbą; None = ostatnia próba (dalej już błąd)
     for odstep in (2, 4, 8, 12, None):
         czekaj = 0.5 - (time.time() - _ostatnie[0])
@@ -130,7 +130,7 @@ def _fetch(path, data=None):
             time.sleep(czekaj)
         _ostatnie[0] = time.time()
         opener = urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=_ssl_ctx),
+            urllib.request.HTTPSHandler(context=ssl_ctx),
             urllib.request.HTTPCookieProcessor(_jar))
         req = urllib.request.Request(url, data=body, headers=headers)
         try:
@@ -148,12 +148,9 @@ def _fetch(path, data=None):
             dopisek = "; CBOSA ma codzienne krótkie okno serwisowe ok. 21:00" if e.code >= 500 else ""
             raise VerificationUnknown(f"HTTP {e.code}: {url}{dopisek}") from e
         except urllib.error.URLError as e:
-            if isinstance(getattr(e, "reason", None), ssl.SSLCertVerificationError) \
-                    and _ssl_ctx.verify_mode != ssl.CERT_NONE:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
-                _ssl_ctx = ctx
-                continue
+            if isinstance(getattr(e, "reason", None), ssl.SSLCertVerificationError):
+                raise VerificationUnknown(
+                    f"błąd weryfikacji certyfikatu TLS: {url} ({e.reason})") from e
             if odstep is not None:
                 time.sleep(odstep); continue
             raise VerificationUnknown(f"błąd sieci: {url} ({e}); serwer CBOSA ucina połączenia") from e
@@ -320,6 +317,17 @@ def _drukuj_liste(total, pozycje, strona):
         print(f"Kolejna strona: --strona {strona + 1}")
 
 
+def _strict_lista(a, total, pozycje, strona, komenda):
+    if not getattr(a, "strict", False):
+        return
+    glowne = [p for p in pozycje if not p.get("powiazane")]
+    if not isinstance(total, int):
+        raise VerificationUnknown(f"nie udało się potwierdzić liczby wyników komendy {komenda}")
+    if strona != 1 or total != len(glowne):
+        sys.exit(f"BŁĄD: strict blokuje niepełną listę komendy {komenda}: łącznie {total}, "
+                 f"na stronie {strona} zwrócono {len(glowne)} głównych wyników.")
+
+
 def cmd_szukaj(a):
     kryteria = any([a.fraza, a.sygnatura, a.sad, a.rodzaj, a.symbol, a.sedzia, a.od, a.do])
     if not kryteria:
@@ -330,6 +338,7 @@ def cmd_szukaj(a):
         if komunikat:  # formularz odrzucił zapytanie (np. zła data) — to błąd wejścia, nie serwera
             sys.exit(f"CBOSA odrzuciło zapytanie: {komunikat}\nPopraw parametry i ponów "
                      "(daty w formacie RRRR-MM-DD).")
+    _strict_lista(a, total, pozycje, strona, "szukaj")
     if a.json:
         print(json.dumps({"total": total, "strona": strona, "komunikat": komunikat, "wyniki": pozycje},
                          ensure_ascii=False, indent=2)); return
@@ -344,6 +353,11 @@ def cmd_orzeczenie(a):
     if not re.fullmatch(r"[A-F0-9]{6,}", doc_id):
         sys.exit(f"Nieprawidłowy doc_id: {a.doc_id!r} (identyfikator ze strony wyników, np. 8889489BE0).")
     d = _orzeczenie(_fetch(f"/doc/{doc_id}"), doc_id)
+    if getattr(a, "strict", False):
+        if not d.get("tytul") or not d.get("metadane"):
+            raise VerificationUnknown(f"nie udało się rozpoznać metadanych orzeczenia {doc_id}")
+        if not any(d.get(k) for k in ("sentencja", "tezy", "uzasadnienie")):
+            raise VerificationUnknown(f"nie udało się potwierdzić kompletności treści orzeczenia {doc_id}")
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2)); return
     if not d.get("tytul") and not d.get("metadane"):
@@ -394,6 +408,7 @@ def cmd_sygnatura(a):
     if total is None and not pozycje:
         if komunikat:
             sys.exit(f"CBOSA odrzuciło zapytanie: {komunikat}")
+    _strict_lista(a, total, pozycje, 1, "sygnatura")
     if a.json:
         print(json.dumps({"total": total, "komunikat": komunikat, "wyniki": pozycje},
                          ensure_ascii=False, indent=2)); return
@@ -415,6 +430,8 @@ def main():
                     "Orzecznictwo sądów administracyjnych: NSA + 16 WSA.")
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--json", action="store_true", help="zrzut sparsowanych danych jako JSON")
+    ap.add_argument("--strict", action="store_true",
+                    help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("szukaj")
@@ -443,6 +460,8 @@ def main():
     for p in sub.choices.values():
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                        help="zrzut sparsowanych danych jako JSON")
+        p.add_argument("--strict", action="store_true", default=argparse.SUPPRESS,
+                       help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
 
     a = ap.parse_args()
     try:

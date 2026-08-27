@@ -6,9 +6,12 @@ Wszystko publiczne, bez klucza. Read-only.
 
 - **SPARQL**: `https://publications.europa.eu/webapi/rdf/sparql`
   POST/GET z `query=` + `format=application/sparql-results+json` (też XML/CSV).
-- **CELLAR REST (treść)**: `http://publications.europa.eu/resource/celex/{CELEX}`
-  z nagłówkami `Accept: application/xhtml+xml` i `Accept-Language: pol|eng|…` (kod 3-literowy,
-  małymi). PDF NIE działa przez negocjację — pobierz URL manifestacji przez SPARQL
+- **CELLAR REST (treść)**: identyfikator zasobu ma postać
+  `http://publications.europa.eu/resource/celex/{CELEX}`, ale żądanie sieciowe jest wysyłane
+  wyłącznie przez HTTPS. Helper podnosi schemat także w adresach manifestacji i przekierowaniach
+  z oficjalnych hostów oraz odrzuca przekierowania do obcego hosta. Używa nagłówków
+  `Accept: application/xhtml+xml` i `Accept-Language: pol|eng|…` (kod 3-literowy, małymi).
+  PDF NIE działa przez negocjację - pobierz URL manifestacji przez SPARQL
   (`cdm:manifestation_manifests_expression`, `cdm:manifestation_type` zaczynający się od `pdf`)
   i doklej `/DOC_1`.
 - **ELI URI**: `http://data.europa.eu/eli/reg/2016/679/oj` → przekierowanie na EUR-Lex.
@@ -51,3 +54,11 @@ w SPARQL pełny URI `…/authority/language/POL`.
 - Wyszukiwarka pełnotekstowa EUR-Lex to osobny webservice SOAP (wymaga rejestracji EU Login,
   limit 10 000 wyników od 2026) — eurlex.py jej nie używa.
 - Masowe pobrania: bulk download / Data Dump Urzędu Publikacji (nie rób crawl po REST).
+
+## Kontrakt `--strict`
+
+Flaga działa przed komendą i po niej. `szukaj` pobiera jeden wynik ponad `--limit` i blokuje
+uciętą listę. `skonsolidowany` analogicznie wykrywa przekroczenie 100 wersji, a `odniesienia`
+przekroczenie 300 relacji. `meta` i `tekst` przed wynikiem sprawdzają listę wersji skonsolidowanych
+i blokują akt bazowy, wersję starszą albo nieudaną kontrolę. Każda nieudana lub niejednoznaczna
+kontrola kończy się kodem różnym od zera, także przy `--json`.

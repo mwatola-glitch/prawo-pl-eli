@@ -30,6 +30,13 @@ Mapowanie komend `saos.py` → parametry: `--sad`→`courtType`, `--sygnatura`�
 `--przepis`→`referencedRegulation`, `--sedzia`→`judgeName`, `--haslo`→`keywords`, `--typ`→`judgmentTypes`,
 `--od/--do`→`judgmentDateFrom/To`, `--limit`→`pageSize`, `--strona`→`pageNumber`.
 
+## Kontrakt `--strict`
+
+Wszystkie komendy rozpoznają flagę przed komendą i po niej, ale odrzucają ją z kodem różnym
+od zera przed wywołaniem API. SAOS jest wtórnym agregatem, nie obejmuje praktycznie sądów
+administracyjnych, a zbiory SN, TK i KIO są zamknięte. API nie daje podstawy do potwierdzenia
+aktualności ani kompletności wyszukiwania, rekordu po ID lub wyszukiwania po sygnaturze.
+
 ## Pole `items[]` (wynik wyszukiwania)
 
 `id`, `href`, `courtType`, `courtCases[].caseNumber`, `judgmentType`, `judgmentDate`,
