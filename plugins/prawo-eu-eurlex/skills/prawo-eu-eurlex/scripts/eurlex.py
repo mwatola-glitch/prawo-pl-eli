@@ -244,7 +244,11 @@ def _ostrzezenia_konsolidacja(celex, strict=False):
     użytkownikowi treści głównej, więc UNKNOWN staje się tu głośnym ostrzeżeniem
     (pełną weryfikację wymusza komenda skonsolidowany, gdzie to treść główna)."""
     try:
-        kons = _konsolidacje(celex)
+        # `strict` MUSI isc dalej: bez niego `_konsolidacje` pyta z LIMIT 100,
+        # wiec prog "ponad 100 wersji" nie ma jak zadzialac. Skutek jest wezszy,
+        # niz wyglada, ale realny - jedyna sciezka, ktora pod strict nie konczy
+        # sie wyjsciem wczesniej, to wersja skonsolidowana bedaca juz najnowsza.
+        kons = _konsolidacje(celex, strict)
     except VerificationUnknown as e:
         if strict:
             raise

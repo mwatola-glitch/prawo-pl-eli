@@ -384,6 +384,26 @@ class EliVerificationContractTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "strict blokuje metadane"):
                 eli.cmd_meta(args)
 
+    def test_meta_json_odrzuca_odpowiedz_nie_bedaca_slownikiem(self):
+        """Kontrola ksztaltu musi wyprzedzac druk --json, nie isc po nim.
+
+        Przy HTTP 200 z WAF-a albo strony HTML odpowiedz nie jest slownikiem.
+        Walidacja stala PO galezi --json, wiec `meta --json` drukowal takie
+        cialo jako metadane aktu i konczyl sie kodem 0.
+        """
+        args = argparse.Namespace(sygnatura=["DU", "2000", "1"], json=True, strict=False)
+        with mock.patch.object(eli, "_get", return_value="<html>WAF</html>"):
+            with self.assertRaisesRegex(SystemExit, "nieoczekiwaną odpowiedź"):
+                eli.cmd_meta(args)
+
+    def test_struktura_json_odrzuca_odpowiedz_nie_bedaca_lista(self):
+        """To samo w strukturze aktu."""
+        args = argparse.Namespace(sygnatura=["DU", "2000", "1"], filtr=None, poziom=None,
+                                  json=True, strict=False)
+        with mock.patch.object(eli, "_get", return_value="<html>WAF</html>"):
+            with self.assertRaisesRegex(SystemExit, "nieoczekiwaną odpowiedź"):
+                eli.cmd_struktura(args)
+
     def test_struktura_strict_sprawdza_aktualnosc_przed_json(self):
         refs = {"Nowelizacje po tekście jednolitym": [{"act": {"ELI": "DU/2025/2"}}]}
         args = argparse.Namespace(sygnatura=["DU", "2000", "1"], filtr=None, poziom=None,

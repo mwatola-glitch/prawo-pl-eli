@@ -97,6 +97,17 @@ def _expect_dict(d, what):
     return d
 
 
+def _expect_struktura(d, what):
+    """Struktura aktu bywa lista albo pojedynczym slownikiem - obie sa poprawne.
+
+    Odrzucamy wszystko inne, bo `200` z WAF-a albo ze strony HTML nie jest
+    struktura, a przy `--json` szedl na wyjscie jako gdyby nia byl.
+    """
+    if not isinstance(d, (list, dict)):
+        sys.exit(f"BŁĄD: API zwróciło nieoczekiwaną odpowiedź ({what}) — spróbuj ponownie za chwilę.")
+    return d
+
+
 class _Stripper(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -356,7 +367,9 @@ def cmd_szukaj(a):
 
 def cmd_meta(a):
     path, label = act_path(a.sygnatura)
-    d = _get(path)
+    # Kontrola ksztaltu WYPRZEDZA galaz --json. Stala po niej, wiec HTTP 200
+    # z WAF-a albo ze strony HTML szlo na wyjscie jako metadane aktu, z kodem 0.
+    d = _expect_dict(_get(path), "metadane aktu")
     if getattr(a, "strict", False):
         refs = _get(path + "/references", soft=True)
         refs = _expect_dict(refs, "odniesienia aktu")
@@ -365,7 +378,6 @@ def cmd_meta(a):
                      "wykazała tekst jednolity albo późniejsze zmiany.")
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2)); return
-    d = _expect_dict(d, "metadane aktu")
     print(f"Akt: {label}")
     print(f"  Tytuł:   {d.get('title','').strip()}")
     print(f"  Adres:   {d.get('displayAddress','')}")
@@ -465,7 +477,7 @@ def cmd_tekst(a):
 
 def cmd_struktura(a):
     path, label = act_path(a.sygnatura)
-    d = _get(path + "/struct")
+    d = _expect_struktura(_get(path + "/struct"), "struktura aktu")
     if getattr(a, "strict", False):
         refs = _expect_dict(_get(path + "/references", soft=True), "odniesienia aktu")
         if _strict_powod_nieaktualnosci(refs):

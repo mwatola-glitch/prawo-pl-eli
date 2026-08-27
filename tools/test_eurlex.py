@@ -120,6 +120,36 @@ class TestKonsolidacje(unittest.TestCase):
         finally:
             eurlex._sparql = orig
 
+    def test_ostrzezenia_konsolidacja_przekazuje_strict_dalej(self):
+        """Bez przekazania strict LIMIT zostaje 100, wiec prog "ponad 100" nie zadziala.
+
+        Funkcja przyjmowala `strict`, ale wolala `_konsolidacje(celex)` bez niego,
+        wiec kontrola kompletnosci listy wersji skonsolidowanych byla w tej
+        sciezce faktycznie pominieta - flaga obiecywala wiecej, niz robila.
+        """
+        # Jedyna sciezka, ktora pod `strict` NIE konczy sie wyjsciem wczesniej:
+        # pytamy o wersje skonsolidowana, ktora sama jest najnowsza. Wtedy zaden
+        # z pozostalych straznikow nie ma czym zadzialac i zostaje sam prog
+        # kompletnosci listy - kontrola ginaca przez nieprzekazany `strict`.
+        celex = "02016R0679-20991231"
+        rows = [{"celex": {"value": f"02016R0679-2016{i:04d}"}}
+                for i in range(1230, 1129, -1)]
+        assert len(rows) == 101
+        zapytania = []
+
+        def fake_sparql(q, soft=False):
+            zapytania.append(q)
+            return rows
+
+        orig = eurlex._sparql
+        eurlex._sparql = fake_sparql
+        try:
+            with self.assertRaisesRegex(SystemExit, "niepełną listę wersji skonsolidowanych"):
+                eurlex._ostrzezenia_konsolidacja(celex, True)
+        finally:
+            eurlex._sparql = orig
+        self.assertIn("LIMIT 101", zapytania[0])
+
     def test_prefiks_z_aktu_bazowego(self):
         rows = [{"celex": {"value": "02016R0679-20160504"}}]
         wynik, zapytania = self._z_fake_sparql(rows, "32016R0679")
