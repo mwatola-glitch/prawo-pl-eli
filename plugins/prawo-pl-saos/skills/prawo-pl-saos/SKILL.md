@@ -42,19 +42,17 @@ Skrypt leży **obok tego pliku SKILL.md** (`<katalog skilla>/scripts/saos.py`) �
 Code: `${CLAUDE_PLUGIN_ROOT}/skills/prawo-pl-saos`). Uruchamiaj wyłącznie helper z bieżącego pakietu:
 
 ```
-# Podstaw bezwzględną ścieżkę bieżącego SKILL.md z lokalizatora skilla.
-SKILL_MD="/bezwzględna/ścieżka/do/bieżącego/SKILL.md"
-SKILL_DIR="${SKILL_MD%/SKILL.md}"
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-  SAOS="${CLAUDE_PLUGIN_ROOT}/skills/prawo-pl-saos/scripts/saos.py"
-else
-  SAOS="${SKILL_DIR}/scripts/saos.py"
-fi
+[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || {
+  echo "BŁĄD: bez CLAUDE_PLUGIN_ROOT nie ma bezpiecznego fallbacku do helpera bieżącego pakietu." >&2
+  exit 1
+}
+SAOS="${CLAUDE_PLUGIN_ROOT}/skills/prawo-pl-saos/scripts/saos.py"
 [ -f "$SAOS" ] || { echo "BŁĄD: brak helpera bieżącego pakietu: $SAOS" >&2; exit 1; }
 python3 "$SAOS" <komenda> [...]
 ```
 
-Nie pobieraj helpera z sieci i nie szukaj go po katalogach użytkownika ani systemu.
+Bez `CLAUDE_PLUGIN_ROOT` fallbacku nie ma. Zatrzymaj się z powyższym błędem. Nie pobieraj helpera
+z sieci i nie szukaj go po katalogach użytkownika ani systemu.
 
 (W przykładach niżej `python3 scripts/saos.py` oznacza `python3 "$SAOS"`, jeśli nie jesteś w katalogu skilla.)
 
@@ -72,7 +70,10 @@ Nie pobieraj helpera z sieci i nie szukaj go po katalogach użytkownika ani syst
   uzasadnienia. Do długich uzasadnień: `--fragment "rękojmia"` (wycina okna wokół frazy).
 - **sygnatura** — szybkie odszukanie po numerze sprawy:
   `python3 scripts/saos.py sygnatura III CSK 203/09`
-- każda komenda przyjmuje `--json` oraz `--strict` (blokuje wynik bez zweryfikowanej aktualności lub kompletności); obie flagi działają przed komendą i po niej.
+- każda komenda przyjmuje `--json`; flaga działa przed komendą i po niej.
+- każda komenda rozpoznaje `--strict` przed komendą i po niej, ale odrzuca ją z błędem przed
+  zapytaniem. SAOS jest wtórnym, częściowo zamkniętym agregatem i nie pozwala potwierdzić
+  aktualności ani kompletności wyniku.
 
 Typowy przepływ: `szukaj` (zawęź `--sad`/`--przepis`/`--haslo`) → wybierz ID → `orzeczenie <id>`
 → w razie potrzeby skacz po `referencedCourtCases` do powołanych orzeczeń.

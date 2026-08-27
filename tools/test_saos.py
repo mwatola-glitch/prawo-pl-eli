@@ -244,25 +244,27 @@ class SaosVerificationContractTests(unittest.TestCase):
                 saos.cmd_sygnatura(args)
         self.assertNotIn("Nie znaleziono orzeczenia", str(caught.exception))
 
-    def test_strict_blokuje_zakres_poza_zamknietym_zbiorem(self):
-        out = io.StringIO()
-        with mock.patch.object(sys, "argv",
-                               ["saos.py", "szukaj", "--sad", "SN", "--od", "2024-01-01",
-                                "--strict"]), \
-                mock.patch.object(saos, "_get") as get_mock, \
-                contextlib.redirect_stdout(out):
-            with self.assertRaisesRegex(SystemExit, "strict.*poza zakresem"):
-                saos.main()
-        get_mock.assert_not_called()
-        self.assertEqual(out.getvalue(), "")
-
-    def test_strict_blokuje_niekompletny_zbior_administracyjny(self):
+    def test_szukaj_odrzuca_strict_przed_api(self):
         args = argparse.Namespace(sad="admin", fraza="RODO", sygnatura=None, przepis=None,
                                   sedzia=None, haslo=None, typ=None, od=None, do=None,
                                   limit=10, strona=0, json=False, strict=True)
         with mock.patch.object(saos, "_get") as get_mock:
-            with self.assertRaisesRegex(SystemExit, "niekompletny zbiór"):
+            with self.assertRaisesRegex(SystemExit, "szukaj odrzuca --strict"):
                 saos.cmd_szukaj(args)
+        get_mock.assert_not_called()
+
+    def test_orzeczenie_odrzuca_strict_przed_api(self):
+        args = argparse.Namespace(id="123", fragment=None, json=True, strict=True)
+        with mock.patch.object(saos, "_get") as get_mock:
+            with self.assertRaisesRegex(SystemExit, "orzeczenie odrzuca --strict"):
+                saos.cmd_orzeczenie(args)
+        get_mock.assert_not_called()
+
+    def test_sygnatura_odrzuca_strict_przed_api(self):
+        args = argparse.Namespace(sygnatura=["III", "CSK", "203/09"], json=True, strict=True)
+        with mock.patch.object(saos, "_get") as get_mock:
+            with self.assertRaisesRegex(SystemExit, "sygnatura odrzuca --strict"):
+                saos.cmd_sygnatura(args)
         get_mock.assert_not_called()
 
 

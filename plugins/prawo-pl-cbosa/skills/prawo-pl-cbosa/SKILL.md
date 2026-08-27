@@ -44,19 +44,17 @@ Skrypt leży **obok tego pliku SKILL.md** (`<katalog skilla>/scripts/cbosa.py`) 
 Code: `${CLAUDE_PLUGIN_ROOT}/skills/prawo-pl-cbosa`). Uruchamiaj wyłącznie helper z bieżącego pakietu:
 
 ```
-# Podstaw bezwzględną ścieżkę bieżącego SKILL.md z lokalizatora skilla.
-SKILL_MD="/bezwzględna/ścieżka/do/bieżącego/SKILL.md"
-SKILL_DIR="${SKILL_MD%/SKILL.md}"
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-  CBOSA="${CLAUDE_PLUGIN_ROOT}/skills/prawo-pl-cbosa/scripts/cbosa.py"
-else
-  CBOSA="${SKILL_DIR}/scripts/cbosa.py"
-fi
+[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || {
+  echo "BŁĄD: bez CLAUDE_PLUGIN_ROOT nie ma bezpiecznego fallbacku do helpera bieżącego pakietu." >&2
+  exit 1
+}
+CBOSA="${CLAUDE_PLUGIN_ROOT}/skills/prawo-pl-cbosa/scripts/cbosa.py"
 [ -f "$CBOSA" ] || { echo "BŁĄD: brak helpera bieżącego pakietu: $CBOSA" >&2; exit 1; }
 python3 "$CBOSA" <komenda> [...]
 ```
 
-Nie pobieraj helpera z sieci i nie szukaj go po katalogach użytkownika ani systemu.
+Bez `CLAUDE_PLUGIN_ROOT` fallbacku nie ma. Zatrzymaj się z powyższym błędem. Nie pobieraj helpera
+z sieci i nie szukaj go po katalogach użytkownika ani systemu.
 
 (W przykładach niżej `python3 scripts/cbosa.py` oznacza `python3 "$CBOSA"`, jeśli nie jesteś w katalogu skilla.)
 
@@ -76,7 +74,10 @@ Nie pobieraj helpera z sieci i nie szukaj go po katalogach użytkownika ani syst
   `--fragment "interpretacja"` (wycina okna wokół frazy).
 - **sygnatura** — szybkie odszukanie po sygnaturze:
   `python3 scripts/cbosa.py sygnatura II FSK 2870/18`
-- każda komenda przyjmuje `--json` oraz `--strict` (blokuje wynik bez zweryfikowanej aktualności lub kompletności); obie flagi działają przed komendą i po niej.
+- każda komenda przyjmuje `--json` oraz `--strict`; obie flagi działają przed komendą i po niej.
+  `--strict` w `szukaj` i `sygnatura` przepuszcza tylko kompletny wynik mieszczący się na pierwszej
+  stronie, a w `orzeczenie` wymaga rozpoznanych metadanych i co najmniej jednej części treści.
+  Brak albo niejednoznaczność kontroli kończy komendę błędem.
 
 Typowy przepływ: `szukaj` (zawęź `--sad`/`--od`/`--symbol`) → wybierz doc_id → `orzeczenie <doc_id>`
 → w razie potrzeby skacz po sygnaturach powiązanych (WSA ↔ NSA w tej samej sprawie).

@@ -18,7 +18,7 @@ Komendy:
   orzeczenie <id> [--fragment "<fraza>"]   pełne orzeczenie: metadane, powołane przepisy/orzeczenia, treść
   sygnatura <sygnatura...>                  znajdź orzeczenie po numerze sprawy (caseNumber)
 Globalnie: --json  (zrzut surowego JSON zamiast podsumowania)
-           --strict  (blokuje wynik bez zweryfikowanej aktualności lub kompletności)
+           --strict  (odrzucane: SAOS nie pozwala potwierdzić aktualności ani kompletności)
 """
 import sys, json, re, time, argparse, urllib.request, urllib.parse, urllib.error
 from html.parser import HTMLParser
@@ -294,16 +294,15 @@ def _wiersz(it):
     print()
 
 
+def _odrzuc_strict(a, komenda):
+    if getattr(a, "strict", False):
+        sys.exit(f"BŁĄD: komenda {komenda} odrzuca --strict. SAOS jest wtórnym, częściowo "
+                 "zamkniętym agregatem i nie pozwala potwierdzić aktualności ani kompletności wyniku.")
+
+
 def cmd_szukaj(a):
+    _odrzuc_strict(a, "szukaj")
     ct = _court_type(a.sad)
-    if getattr(a, "strict", False) and _zakres_niekompletny(ct, a.od, a.do):
-        if ct == "ADMINISTRATIVE":
-            sys.exit("BŁĄD: strict blokuje niekompletny zbiór sądów administracyjnych w SAOS. "
-                     "Użyj CBOSA przez skill prawo-pl-cbosa.")
-        ostatni_rok = ZASIEG[ct][0]
-        sys.exit(f"BŁĄD: strict blokuje zapytanie poza zakresem kompletności SAOS. "
-                 f"Zbiór {CT_PL.get(ct, ct)} kończy się na {ostatni_rok} r.; "
-                 f"ogranicz --do do {ostatni_rok}-12-31 albo użyj aktualnego źródła sądu.")
     params = {
         "all": a.fraza,
         "caseNumber": a.sygnatura,
@@ -346,6 +345,7 @@ def cmd_szukaj(a):
 
 
 def cmd_orzeczenie(a):
+    _odrzuc_strict(a, "orzeczenie")
     d = _get(f"/judgments/{a.id}")
     d = _expect_judgment(d, a.id)
     if a.json:
@@ -411,6 +411,7 @@ def cmd_orzeczenie(a):
 
 
 def cmd_sygnatura(a):
+    _odrzuc_strict(a, "sygnatura")
     sig = " ".join(a.sygnatura).strip()
     d = _get("/search/judgments", {"caseNumber": sig, "pageSize": 20, "pageNumber": 0,
                                    "sortingField": "JUDGMENT_DATE", "sortingDirection": "DESC"})
@@ -439,7 +440,7 @@ def main():
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument("--json", action="store_true", help="zrzut surowego JSON")
     ap.add_argument("--strict", action="store_true",
-                    help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
+                    help="odrzuć flagę: SAOS nie pozwala potwierdzić aktualności ani kompletności")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("szukaj")
@@ -471,7 +472,7 @@ def main():
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                        help="zrzut surowego JSON")
         p.add_argument("--strict", action="store_true", default=argparse.SUPPRESS,
-                       help="zakończ błędem bez zweryfikowanej aktualności lub kompletności")
+                       help="odrzuć flagę: SAOS nie pozwala potwierdzić aktualności ani kompletności")
 
     a = ap.parse_args()
     try:

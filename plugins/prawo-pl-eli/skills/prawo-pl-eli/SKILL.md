@@ -50,19 +50,17 @@ Skrypt leży **obok tego pliku SKILL.md** (`<katalog skilla>/scripts/eli.py`) �
 Code: `${CLAUDE_PLUGIN_ROOT}/skills/prawo-pl-eli`). Uruchamiaj wyłącznie helper z bieżącego pakietu:
 
 ```
-# Podstaw bezwzględną ścieżkę bieżącego SKILL.md z lokalizatora skilla.
-SKILL_MD="/bezwzględna/ścieżka/do/bieżącego/SKILL.md"
-SKILL_DIR="${SKILL_MD%/SKILL.md}"
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-  ELI="${CLAUDE_PLUGIN_ROOT}/skills/prawo-pl-eli/scripts/eli.py"
-else
-  ELI="${SKILL_DIR}/scripts/eli.py"
-fi
+[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || {
+  echo "BŁĄD: bez CLAUDE_PLUGIN_ROOT nie ma bezpiecznego fallbacku do helpera bieżącego pakietu." >&2
+  exit 1
+}
+ELI="${CLAUDE_PLUGIN_ROOT}/skills/prawo-pl-eli/scripts/eli.py"
 [ -f "$ELI" ] || { echo "BŁĄD: brak helpera bieżącego pakietu: $ELI" >&2; exit 1; }
 python3 "$ELI" <komenda> [...]
 ```
 
-Nie pobieraj helpera z sieci i nie szukaj go po katalogach użytkownika ani systemu.
+Bez `CLAUDE_PLUGIN_ROOT` fallbacku nie ma. Zatrzymaj się z powyższym błędem. Nie pobieraj helpera
+z sieci i nie szukaj go po katalogach użytkownika ani systemu.
 
 (W przykładach niżej `python3 scripts/eli.py` oznacza `python3 "$ELI"`, jeśli nie jesteś w katalogu skilla.)
 
@@ -94,7 +92,11 @@ Sygnaturę można podać w wielu formach: `DU 2000 1037`, `DU/2024/18`, `"Dz.U. 
   `python3 scripts/eli.py struktura DU 2024 18 --filtr "Art. 299"` (opcje: `--filtr`, `--poziom N`)
 - **odniesienia** — powiązania: nowelizacje, podstawa prawna, tekst jednolity, akty wykonawcze:
   `python3 scripts/eli.py odniesienia DU 2024 18`
-- każda komenda przyjmuje `--json` oraz `--strict` (blokuje wynik bez zweryfikowanej aktualności lub kompletności); obie flagi działają przed komendą i po niej.
+- każda komenda przyjmuje `--json` oraz `--strict`; obie flagi działają przed komendą i po niej.
+  `--strict` wymaga pełnej strony w `szukaj`, sprawdza aktualność przez odniesienia w `meta`,
+  `tekst` i `struktura`, wymaga kompletnej odpowiedzi w `odniesienia` oraz sprawdza akt bazowy
+  przed uznaniem tekstu jednolitego za aktualny w `tj`. Brak albo niejednoznaczność kontroli
+  kończy komendę błędem.
 
 Narzędzie samo ostrzega: `tekst` na akcie, który ma tekst jednolity, każe cytować z najnowszego t.j.;
 na tekście jednolitym wypisuje „Nowelizacje po tekście jednolitym". Gdy `text.html` świeżego t.j. jest

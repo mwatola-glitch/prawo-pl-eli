@@ -31,6 +31,15 @@ Wszystko **GET** (read-only). `{publisher}` = `DU` (Dziennik Ustaw) lub `MP` (Mo
 `announcementDateFrom`/`announcementDateTo`, `pubDateFrom`/`pubDateTo`). Pełny zestaw — w spec OpenAPI.
 Odpowiedź: `{ "count": N, "items": [ { "address": "WDU...", "ELI": "DU/RRRR/PPP", "title": ..., "status": ... }, ... ] }`.
 
+## Kontrakt `--strict`
+
+Flaga działa przed komendą i po niej. `szukaj` wymaga `offset=0` i wszystkich `count` wyników
+w jednej odpowiedzi. `meta`, `tekst` i `struktura` pobierają także `/references` i blokują wynik,
+gdy kontrola aktualności jest niemożliwa albo wskazuje tekst jednolity lub późniejsze zmiany.
+`odniesienia` wymaga pełnego obiektu JSON. `tj` na obwieszczeniu sprawdza listę tekstów jednolitych
+na akcie bazowym. Każda nieudana lub niejednoznaczna kontrola kończy się kodem różnym od zera,
+także przy `--json`.
+
 ## Pola metadanych aktu (`/acts/{pub}/{year}/{pos}`)
 
 `title`, `type`, `status`, `inForce` (`IN_FORCE`/…), `announcementDate`, `promulgation` (data ogłoszenia

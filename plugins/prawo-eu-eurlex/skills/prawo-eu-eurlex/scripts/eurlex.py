@@ -219,7 +219,7 @@ def celex_norm(parts):
              "02016R0679-20160504 (skonsolidowany), reg/2016/679 (ELI).")
 
 
-def _konsolidacje(celex):
+def _konsolidacje(celex, strict=False):
     """Lista CELEX-ów wersji skonsolidowanych albo VERIFIED_ABSENT jako [].
 
     VerificationUnknown jest przekazywany do wywołującego, bez zamiany na [].
@@ -230,8 +230,11 @@ def _konsolidacje(celex):
 SELECT DISTINCT ?celex WHERE {{
   ?w cdm:resource_legal_id_celex ?celex .
   FILTER(STRSTARTS(STR(?celex), "{base}-"))
-}} ORDER BY DESC(?celex) LIMIT 100""", soft=True)
-    return [c for c in (_v(b, "celex") for b in rows) if re.search(r"-\d{8}$", c)]
+}} ORDER BY DESC(?celex) LIMIT {101 if strict else 100}""", soft=True)
+    kons = [c for c in (_v(b, "celex") for b in rows) if re.search(r"-\d{8}$", c)]
+    if strict and len(rows) > 100:
+        sys.exit("BŁĄD: strict blokuje niepełną listę wersji skonsolidowanych (ponad 100 wyników).")
+    return kons
 
 
 def _ostrzezenia_konsolidacja(celex, strict=False):
@@ -249,6 +252,8 @@ def _ostrzezenia_konsolidacja(celex, strict=False):
                 f"({e}) — sprawdź komendą: skonsolidowany {celex}, zanim zacytujesz."]
     out = []
     if celex.startswith("0"):
+        if strict and not kons:
+            sys.exit(f"BŁĄD: strict nie potwierdził listy wersji skonsolidowanych dla {celex}.")
         out.append("UWAGA: wersja skonsolidowana ma charakter DOKUMENTACYJNY (nie jest autentyczna) — "
                    "do urzędowego cytatu wskaż akt bazowy + zmiany.")
         if kons and kons[0] > celex:
@@ -262,6 +267,8 @@ def _ostrzezenia_konsolidacja(celex, strict=False):
                      f"skonsolidowana to {kons[0]}.")
         out.append(f"UWAGA: akt ma wersje skonsolidowane — do analizy aktualnego stanu użyj najnowszej: "
                    f"{kons[0]} (pełna lista: skonsolidowany {celex}).")
+    elif strict:
+        sys.exit(f"BŁĄD: strict nie potwierdził aktualnej wersji skonsolidowanej dla aktu {celex}.")
     return out
 
 
@@ -288,8 +295,11 @@ SELECT DISTINCT ?celex ?date ?title ?inf WHERE {{
   ?exp cdm:expression_uses_language <{LANG_AUTH}{lang}> .
   ?exp cdm:expression_title ?title .
   {' '.join(filt)}
-}} ORDER BY DESC(?date) LIMIT {a.limit}"""
+}} ORDER BY DESC(?date) LIMIT {a.limit + 1 if getattr(a, 'strict', False) else a.limit}"""
     rows = _sparql(q)
+    if getattr(a, "strict", False) and len(rows) > a.limit:
+        sys.exit(f"BŁĄD: strict blokuje niepełną listę wyników: zapytanie ma więcej niż "
+                 f"{a.limit} trafień. Zwiększ --limit.")
     if a.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2)); return
     if not rows:
@@ -355,7 +365,7 @@ SELECT ?type ?date ?inf ?eli ?eiv ?eov ?title WHERE {{
 def cmd_skonsolidowany(a):
     celex = celex_norm(a.celex)
     try:
-        kons = _konsolidacje(celex)
+        kons = _konsolidacje(celex, strict=getattr(a, "strict", False))
     except VerificationUnknown as e:
         _nie_zweryfikowano(f"wersji skonsolidowanych dla {celex}", e)
     if a.json:
@@ -452,7 +462,9 @@ SELECT DISTINCT ?kier ?c2 WHERE {{
   UNION
   {{ ?w cdm:resource_legal_amends_resource_legal ?o . ?o cdm:resource_legal_id_celex ?c2 .
      BIND("Zmienia (akty zmieniane przez ten akt)" AS ?kier) }}
-}} ORDER BY ?kier DESC(?c2) LIMIT 300""")
+}} ORDER BY ?kier DESC(?c2) LIMIT {301 if getattr(a, 'strict', False) else 300}""")
+    if getattr(a, "strict", False) and len(rows) > 300:
+        sys.exit("BŁĄD: strict blokuje niepełną listę odniesień (ponad 300 relacji).")
     if a.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2)); return
     print(f"Odniesienia dla: CELEX {celex}\n")

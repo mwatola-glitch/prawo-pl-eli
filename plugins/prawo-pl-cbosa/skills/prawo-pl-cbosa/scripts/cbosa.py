@@ -317,6 +317,17 @@ def _drukuj_liste(total, pozycje, strona):
         print(f"Kolejna strona: --strona {strona + 1}")
 
 
+def _strict_lista(a, total, pozycje, strona, komenda):
+    if not getattr(a, "strict", False):
+        return
+    glowne = [p for p in pozycje if not p.get("powiazane")]
+    if not isinstance(total, int):
+        raise VerificationUnknown(f"nie udało się potwierdzić liczby wyników komendy {komenda}")
+    if strona != 1 or total != len(glowne):
+        sys.exit(f"BŁĄD: strict blokuje niepełną listę komendy {komenda}: łącznie {total}, "
+                 f"na stronie {strona} zwrócono {len(glowne)} głównych wyników.")
+
+
 def cmd_szukaj(a):
     kryteria = any([a.fraza, a.sygnatura, a.sad, a.rodzaj, a.symbol, a.sedzia, a.od, a.do])
     if not kryteria:
@@ -327,6 +338,7 @@ def cmd_szukaj(a):
         if komunikat:  # formularz odrzucił zapytanie (np. zła data) — to błąd wejścia, nie serwera
             sys.exit(f"CBOSA odrzuciło zapytanie: {komunikat}\nPopraw parametry i ponów "
                      "(daty w formacie RRRR-MM-DD).")
+    _strict_lista(a, total, pozycje, strona, "szukaj")
     if a.json:
         print(json.dumps({"total": total, "strona": strona, "komunikat": komunikat, "wyniki": pozycje},
                          ensure_ascii=False, indent=2)); return
@@ -341,8 +353,11 @@ def cmd_orzeczenie(a):
     if not re.fullmatch(r"[A-F0-9]{6,}", doc_id):
         sys.exit(f"Nieprawidłowy doc_id: {a.doc_id!r} (identyfikator ze strony wyników, np. 8889489BE0).")
     d = _orzeczenie(_fetch(f"/doc/{doc_id}"), doc_id)
-    if getattr(a, "strict", False) and not d.get("tytul") and not d.get("metadane"):
-        raise VerificationUnknown(f"nie udało się rozpoznać strony orzeczenia {doc_id}")
+    if getattr(a, "strict", False):
+        if not d.get("tytul") or not d.get("metadane"):
+            raise VerificationUnknown(f"nie udało się rozpoznać metadanych orzeczenia {doc_id}")
+        if not any(d.get(k) for k in ("sentencja", "tezy", "uzasadnienie")):
+            raise VerificationUnknown(f"nie udało się potwierdzić kompletności treści orzeczenia {doc_id}")
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2)); return
     if not d.get("tytul") and not d.get("metadane"):
@@ -393,6 +408,7 @@ def cmd_sygnatura(a):
     if total is None and not pozycje:
         if komunikat:
             sys.exit(f"CBOSA odrzuciło zapytanie: {komunikat}")
+    _strict_lista(a, total, pozycje, 1, "sygnatura")
     if a.json:
         print(json.dumps({"total": total, "komunikat": komunikat, "wyniki": pozycje},
                          ensure_ascii=False, indent=2)); return

@@ -47,19 +47,17 @@ bez klucza API). Skrypt leży **obok tego pliku SKILL.md** — NIE zakładaj, ż
 `${CLAUDE_PLUGIN_ROOT}/skills/prawo-eu-eurlex`). Uruchamiaj wyłącznie helper z bieżącego pakietu:
 
 ```
-# Podstaw bezwzględną ścieżkę bieżącego SKILL.md z lokalizatora skilla.
-SKILL_MD="/bezwzględna/ścieżka/do/bieżącego/SKILL.md"
-SKILL_DIR="${SKILL_MD%/SKILL.md}"
-if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-  EURLEX="${CLAUDE_PLUGIN_ROOT}/skills/prawo-eu-eurlex/scripts/eurlex.py"
-else
-  EURLEX="${SKILL_DIR}/scripts/eurlex.py"
-fi
+[ -n "${CLAUDE_PLUGIN_ROOT:-}" ] || {
+  echo "BŁĄD: bez CLAUDE_PLUGIN_ROOT nie ma bezpiecznego fallbacku do helpera bieżącego pakietu." >&2
+  exit 1
+}
+EURLEX="${CLAUDE_PLUGIN_ROOT}/skills/prawo-eu-eurlex/scripts/eurlex.py"
 [ -f "$EURLEX" ] || { echo "BŁĄD: brak helpera bieżącego pakietu: $EURLEX" >&2; exit 1; }
 python3 "$EURLEX" <komenda> [...]
 ```
 
-Nie pobieraj helpera z sieci i nie szukaj go po katalogach użytkownika ani systemu.
+Bez `CLAUDE_PLUGIN_ROOT` fallbacku nie ma. Zatrzymaj się z powyższym błędem. Nie pobieraj helpera
+z sieci i nie szukaj go po katalogach użytkownika ani systemu.
 
 (W przykładach niżej `python3 scripts/eurlex.py` oznacza `python3 "$EURLEX"`, jeśli nie jesteś
 w katalogu skilla.)
@@ -88,7 +86,10 @@ wersje skonsolidowane `02016R0679-20160504`, sprostowania `32016R0679R(01)`, tra
   `--jezyk eng` — inna wersja językowa; `--pdf ŚCIEŻKA` zapisuje urzędowy PDF.
 - **odniesienia** — nowelizacje, sprostowania, podstawa prawna:
   `python3 scripts/eurlex.py odniesienia 32016R0679`
-- każda komenda przyjmuje `--json` oraz `--strict` (blokuje wynik bez zweryfikowanej aktualności lub kompletności); obie flagi działają przed komendą i po niej.
+- każda komenda przyjmuje `--json` oraz `--strict`; obie flagi działają przed komendą i po niej.
+  `--strict` wymaga pełnej listy w `szukaj`, `skonsolidowany` i `odniesienia`, a w `meta` i
+  `tekst` sprawdza dostępność oraz aktualność wersji skonsolidowanej. Brak albo niejednoznaczność
+  kontroli kończy komendę błędem.
 
 Narzędzie samo ostrzega: na akcie bazowym podpowiada najnowszą wersję skonsolidowaną; na wersji
 skonsolidowanej przypomina o jej dokumentacyjnym charakterze i o nowszych wersjach. Nie ignoruj

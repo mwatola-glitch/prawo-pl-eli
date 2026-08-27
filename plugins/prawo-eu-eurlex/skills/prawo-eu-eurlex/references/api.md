@@ -54,3 +54,11 @@ w SPARQL pełny URI `…/authority/language/POL`.
 - Wyszukiwarka pełnotekstowa EUR-Lex to osobny webservice SOAP (wymaga rejestracji EU Login,
   limit 10 000 wyników od 2026) — eurlex.py jej nie używa.
 - Masowe pobrania: bulk download / Data Dump Urzędu Publikacji (nie rób crawl po REST).
+
+## Kontrakt `--strict`
+
+Flaga działa przed komendą i po niej. `szukaj` pobiera jeden wynik ponad `--limit` i blokuje
+uciętą listę. `skonsolidowany` analogicznie wykrywa przekroczenie 100 wersji, a `odniesienia`
+przekroczenie 300 relacji. `meta` i `tekst` przed wynikiem sprawdzają listę wersji skonsolidowanych
+i blokują akt bazowy, wersję starszą albo nieudaną kontrolę. Każda nieudana lub niejednoznaczna
+kontrola kończy się kodem różnym od zera, także przy `--json`.

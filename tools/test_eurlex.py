@@ -210,6 +210,42 @@ class EurlexVerificationContractTests(unittest.TestCase):
                 eurlex.cmd_tekst(args)
         self.assertEqual(out.getvalue(), "")
 
+    def test_szukaj_strict_blokuje_niepelna_liste(self):
+        args = argparse.Namespace(fraza="danych", typ=None, rok=None, jezyk="pol",
+                                  obowiazujace=False, limit=1, json=True, strict=True)
+        with mock.patch.object(eurlex, "_sparql", return_value=[{}, {}]):
+            with self.assertRaisesRegex(SystemExit, "strict blokuje niepełną listę"):
+                eurlex.cmd_szukaj(args)
+
+    def test_meta_strict_sprawdza_konsolidacje_przed_json(self):
+        args = argparse.Namespace(celex=["32016R0679"], jezyk="pol", json=True, strict=True)
+        with mock.patch.object(eurlex, "_sparql", return_value=[{}]), \
+                mock.patch.object(eurlex, "_konsolidacje",
+                                  side_effect=eurlex.VerificationUnknown("timeout")):
+            with self.assertRaisesRegex(eurlex.VerificationUnknown, "timeout"):
+                eurlex.cmd_meta(args)
+
+    def test_meta_strict_nie_uznaje_braku_konsolidacji_za_aktualnosc(self):
+        args = argparse.Namespace(celex=["32016R0679"], jezyk="pol", json=True, strict=True)
+        with mock.patch.object(eurlex, "_sparql", return_value=[{}]), \
+                mock.patch.object(eurlex, "_konsolidacje", return_value=[]):
+            with self.assertRaisesRegex(SystemExit, "strict nie potwierdził aktualnej wersji"):
+                eurlex.cmd_meta(args)
+
+    def test_skonsolidowany_strict_blokuje_limit(self):
+        rows = [{"celex": {"value": f"02016R0679-2025{i:04d}"}} for i in range(101)]
+        args = argparse.Namespace(celex=["32016R0679"], json=True, strict=True)
+        with mock.patch.object(eurlex, "_sparql", return_value=rows):
+            with self.assertRaisesRegex(SystemExit, "strict.*ponad 100"):
+                eurlex.cmd_skonsolidowany(args)
+
+    def test_odniesienia_strict_blokuje_limit(self):
+        rows = [{} for _ in range(301)]
+        args = argparse.Namespace(celex=["32016R0679"], json=True, strict=True)
+        with mock.patch.object(eurlex, "_sparql", return_value=rows):
+            with self.assertRaisesRegex(SystemExit, "strict.*ponad 300"):
+                eurlex.cmd_odniesienia(args)
+
 
 class TestTransportHttps(unittest.TestCase):
     def test_http_podnosi_url_cellar_do_https(self):

@@ -38,6 +38,14 @@ Odwrotnie jest poprawnie: samo `doDaty` (z pustym `odDaty`) filtruje „do dnia"
 POST zwraca stronę 1 + ciasteczka sesji (`Set-Cookie`). Kolejne strony: `GET /cbo/find?p=N`
 **z odesłaniem ciasteczek** (stan wyszukiwania trzymany w sesji). Stała wielkość strony: 10 wyników.
 
+## Kontrakt `--strict`
+
+Flaga działa przed komendą i po niej. W `szukaj` oraz `sygnatura` licznik trafień musi być
+rozpoznany, wynik musi pochodzić z pierwszej strony i wszystkie główne trafienia muszą mieścić
+się na tej stronie. W `orzeczenie` parser musi rozpoznać tytuł, metadane i co najmniej jedną
+z części: sentencję, tezy albo uzasadnienie. Każda nieudana lub niejednoznaczna kontrola kończy
+się kodem różnym od zera, także przy `--json`.
+
 ## Strona wyników — struktura HTML
 
 - liczba trafień: `Znaleziono <N> orzeczeń, Str. X z Y`

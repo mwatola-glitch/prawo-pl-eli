@@ -397,6 +397,22 @@ class CbosaVerificationContractTests(unittest.TestCase):
             with self.assertRaisesRegex(cbosa.VerificationUnknown, "nie udało się rozpoznać"):
                 cbosa.cmd_orzeczenie(args)
 
+    def test_szukaj_strict_blokuje_niepelna_strone(self):
+        args = argparse.Namespace(fraza="podatek", sygnatura=None, sad=None, rodzaj=None,
+                                  symbol=None, sedzia=None, od=None, do=None, strona=1,
+                                  json=True, strict=True)
+        wyniki = [{"powiazane": False} for _ in range(10)]
+        with mock.patch.object(cbosa, "_szukaj", return_value=(11, wyniki, "")):
+            with self.assertRaisesRegex(SystemExit, "strict.*niepełną listę"):
+                cbosa.cmd_szukaj(args)
+
+    def test_sygnatura_strict_blokuje_niepelna_strone(self):
+        args = argparse.Namespace(sygnatura=["II", "FSK", "1/20"], json=True, strict=True)
+        wyniki = [{"powiazane": False} for _ in range(10)]
+        with mock.patch.object(cbosa, "_szukaj", return_value=(11, wyniki, "")):
+            with self.assertRaisesRegex(SystemExit, "strict.*niepełną listę"):
+                cbosa.cmd_sygnatura(args)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
